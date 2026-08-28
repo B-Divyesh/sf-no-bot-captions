@@ -99,6 +99,29 @@ test('advertised Space shortcut works while a capture button has focus', async (
   await page.locator('#stop-button').click();
 });
 
+test('an empty manual correction announces how to recover', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser covers shared validation behavior');
+  await page.addInitScript(() => {
+    class FailingWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      postMessage(message: { id: string }): void {
+        setTimeout(() => this.onmessage?.({ data: { type: 'error', id: message.id, message: 'Synthetic model error' } } as MessageEvent), 0);
+      }
+      terminate(): void {}
+    }
+    Object.defineProperty(window, 'Worker', { configurable: true, value: FailingWorker });
+  });
+  await page.goto('/');
+  await installSyntheticDisplayAudio(page);
+  await startCapture(page);
+  await expect(page.getByText('Caption engine needs attention.')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Edit text' }).click();
+  await page.getByLabel('Correct this caption').fill('   ');
+  await page.getByRole('button', { name: 'Save correction' }).click();
+  await expect(page.locator('.edit-error')).toContainText('Enter the corrected caption');
+  await page.locator('#stop-button').click();
+});
+
 test('mobile legal targets meet 44px and secondary telemetry is dropped', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 1000) > 500, 'mobile-only geometry check');
   await page.goto('/');

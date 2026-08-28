@@ -271,10 +271,11 @@ export class CaptionApp {
   private receiveAudio(samples: Float32Array): void {
     if (!this.running || this.paused) return;
     this.ring.push(samples);
-    this.samplesSinceRun += samples.length;
     const meter = this.byId<HTMLElement>('level-meter');
     meter.style.width = `${Math.min(100, Math.round(rms(samples) * 900))}%`;
     this.byId<HTMLButtonElement>('replay-button').disabled = this.ring.length < SAMPLE_RATE;
+    if (this.busy) return;
+    this.samplesSinceRun += samples.length;
     if (this.samplesSinceRun >= TRANSCRIBE_EVERY && !this.busy) {
       this.samplesSinceRun = 0;
       void this.transcribeCurrent();
