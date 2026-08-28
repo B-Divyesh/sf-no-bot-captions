@@ -1,5 +1,6 @@
 import './styles.css';
 import { CaptionApp } from './app';
+import { recordPageview } from './pageview';
 
 const rootElement = document.querySelector<HTMLElement>('#app');
 if (!rootElement) throw new Error('Application root is missing.');
@@ -37,7 +38,7 @@ function renderLegal(path: string): void {
     <header class="site-header"><a class="wordmark" href="/"><span aria-hidden="true" class="wordmark-mark">▰</span> NO-BOT / CAPTIONS</a><nav aria-label="Primary navigation"><a href="/">Back to captions</a></nav></header>
     <main id="main" class="legal-page"><p class="eyebrow">POLICY / ${page.updated.toLocaleUpperCase()}</p><h1>${page.title}</h1><p class="legal-intro">The short version: capture is visible, meeting audio stays in your browser, and the free tool does not need an account.</p>${page.body}</main>
     <footer><p>No-Bot Captions is built for consent, not surveillance.</p><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></footer>`;
-  void fetch('/api/pageview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }), keepalive: true }).catch(() => undefined);
+  recordPageview(path);
 }
 
 if (legalPages[window.location.pathname]) renderLegal(window.location.pathname);

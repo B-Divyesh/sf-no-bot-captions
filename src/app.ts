@@ -1,5 +1,6 @@
 import { AudioRing, CaptureSession, novelTranscript, rms, uncertainty } from './audio';
 import { acceptLicenseFromUrl, checkoutUrl, localLicenseState, saveLicense, verifyLicense, type LicenseState } from './license';
+import { recordPageview } from './pageview';
 
 const SAMPLE_RATE = 16_000;
 const TRANSCRIBE_EVERY = SAMPLE_RATE * 6;
@@ -11,6 +12,12 @@ type Caption = {
   uncertain: boolean;
   reason?: string;
   createdAt: Date;
+};
+
+type ActiveReplay = {
+  context: AudioContext;
+  source: AudioBufferSourceNode;
+  epoch: number;
 };
 
 class LocalTranscriber {
@@ -73,6 +80,8 @@ export class CaptionApp {
   private timer?: number;
   private captureStarting = false;
   private captureEpoch = 0;
+  private replayEpoch = 0;
+  private activeReplays = new Set<ActiveReplay>();
   private license: LicenseState = { unlocked: false, notice: '' };
   private root: HTMLElement;
 
@@ -92,12 +101,7 @@ export class CaptionApp {
       this.renderLicense();
       this.renderArchive();
     });
-    void fetch('/api/pageview', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ path: '/' }),
-      keepalive: true,
-    }).catch(() => undefined);
+    recordPageview('/');
   }
 
   private template(): string {
@@ -245,6 +249,7 @@ export class CaptionApp {
       this.byId('consent-error').textContent = 'Confirm both points before opening the system picker.';
       return;
     }
+    this.cancelActiveReplays();
     dialog.close();
     this.captureStarting = true;
     this.setCaptureUi('starting');
@@ -415,17 +420,39 @@ export class CaptionApp {
     this.renderCaption(caption);
   }
 
-  private async play(samples: Float32Array): Promise<void> {
+  private play(samples: Float32Array): void {
     if (!samples.length) return;
-    const context = new AudioContext();
-    const buffer = context.createBuffer(1, samples.length, SAMPLE_RATE);
-    buffer.copyToChannel(new Float32Array(samples), 0);
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
-    source.start();
-    this.setEngineStatus(`Replaying ${Math.round(samples.length / SAMPLE_RATE)} seconds on this device…`);
-    source.addEventListener('ended', () => { void context.close(); this.setEngineStatus('Replay finished.'); }, { once: true });
+    try {
+      const context = new AudioContext();
+      const buffer = context.createBuffer(1, samples.length, SAMPLE_RATE);
+      buffer.copyToChannel(new Float32Array(samples), 0);
+      const source = context.createBufferSource();
+      const replay: ActiveReplay = { context, source, epoch: this.replayEpoch };
+      source.buffer = buffer;
+      source.connect(context.destination);
+      this.activeReplays.add(replay);
+      source.addEventListener('ended', () => {
+        this.activeReplays.delete(replay);
+        source.disconnect();
+        void context.close().catch(() => undefined);
+        if (replay.epoch === this.replayEpoch) this.setEngineStatus('Replay finished.');
+      }, { once: true });
+      source.start();
+      this.setEngineStatus(`Replaying ${Math.round(samples.length / SAMPLE_RATE)} seconds on this device…`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unknown audio error';
+      this.setEngineStatus(`Replay could not start: ${detail}`, true);
+    }
+  }
+
+  private cancelActiveReplays(): void {
+    this.replayEpoch += 1;
+    for (const replay of this.activeReplays) {
+      this.activeReplays.delete(replay);
+      try { replay.source.stop(); } catch { /* A replay may already have ended. */ }
+      replay.source.disconnect();
+      void replay.context.close().catch(() => undefined);
+    }
   }
 
   private togglePause(): void {
@@ -441,6 +468,7 @@ export class CaptionApp {
     this.captureStarting = false;
     this.paused = false;
     this.captureEpoch += 1;
+    this.cancelActiveReplays();
     this.capture.stop();
     this.transcriber.reset();
     this.ring.clear();

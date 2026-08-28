@@ -26,6 +26,18 @@ async function installSyntheticDisplayAudio(page: import('@playwright/test').Pag
   });
 }
 
+async function installReplayStopProbe(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript(() => {
+    const state = { stops: 0 };
+    Object.defineProperty(window, '__replayStopTest', { configurable: true, value: state });
+    const originalStop = AudioBufferSourceNode.prototype.stop;
+    AudioBufferSourceNode.prototype.stop = function(...args: Parameters<AudioBufferSourceNode['stop']>): void {
+      state.stops += 1;
+      originalStop.apply(this, args);
+    };
+  });
+}
+
 async function startCapture(page: import('@playwright/test').Page): Promise<void> {
   await page.getByRole('button', { name: 'Choose meeting audio' }).first().click();
   await page.locator('#consent-permission').check();
@@ -87,6 +99,44 @@ test('one capture owns one stream and Stop discards every audio repair buffer', 
   const stoppedStatus = await page.locator('#engine-status').textContent();
   await page.locator('#replay-button').evaluate((button: HTMLButtonElement) => button.click());
   expect(await page.locator('#engine-status').textContent()).toBe(stoppedStatus);
+});
+
+test('Stop cancels an active replay and preserves its privacy status', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser covers the replay lifecycle');
+  await installReplayStopProbe(page);
+  await page.goto('/');
+  await installSyntheticDisplayAudio(page);
+  await startCapture(page);
+  await expect(page.locator('#replay-button')).toBeEnabled({ timeout: 5_000 });
+
+  await page.locator('#replay-button').click();
+  await expect(page.locator('#engine-status')).toContainText('Replaying');
+  await page.locator('#stop-button').click();
+  await expect(page.locator('#engine-status')).toContainText('repair buffer were discarded');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __replayStopTest: { stops: number } }).__replayStopTest.stops)).toBe(1);
+
+  await page.waitForTimeout(1_500);
+  await expect(page.locator('#engine-status')).toContainText('repair buffer were discarded');
+  await expect(page.locator('#engine-status')).not.toContainText('Replay finished');
+});
+
+test('offline reload skips page counting and has no console error', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser covers the offline page-count boundary');
+  await page.goto('/');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+
+  const errors: string[] = [];
+  const pageviewRequests: string[] = [];
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/pageview') pageviewRequests.push(request.url()); });
+  await page.context().setOffline(true);
+  await page.reload();
+  await expect(page.locator('h1')).toHaveCount(1);
+  await page.waitForTimeout(300);
+
+  expect(pageviewRequests).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test('advertised Space shortcut works while a capture button has focus', async ({ page }) => {
