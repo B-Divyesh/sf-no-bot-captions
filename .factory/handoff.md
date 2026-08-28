@@ -62,6 +62,8 @@
   to `/offline-recovery` returned the cached shell with one H1. Page-count
   privacy smoke: allowed `/` returned 200; rejected `/not-allowed` returned
   422; `npm audit --omit=dev` reported 0 vulnerabilities.
+- Local load smoke: 100 `/health` requests at concurrency 20 completed in
+  416 ms with no failures.
 - Live deployment verification at
   `https://sf-no-bot-captions.orangepond-1638693f.eastus2.azurecontainerapps.io`:
   `/health` returned the full commit; unknown routes returned 200 HTML;
