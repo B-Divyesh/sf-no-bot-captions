@@ -65,7 +65,7 @@ test('baseline browsing stays on the product origin', async ({ page }) => {
   page.on('request', (request) => origins.add(new URL(request.url()).origin));
   await page.goto('/');
   await page.waitForLoadState('networkidle');
-  expect([...origins]).toEqual(['http://127.0.0.1:4173']);
+  expect([...origins]).toEqual([new URL(page.url()).origin]);
   await expect(page.locator('#buy-link')).toHaveAttribute('href', 'https://api.sociobot.in/api/v1/products/no-bot-captions/checkout');
 });
 
