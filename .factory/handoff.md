@@ -30,30 +30,52 @@
 
 ## Verification performed
 
-- `npm test`: **pass** — 4 frontend unit tests and 2 Rust route tests.
-- `npm run build`: **pass** — output lands in `dist/`, with `index.html` at its
-  root.
-- `APP_URL=http://127.0.0.1:8080 npm run test:e2e`: **pass** — 4 Playwright
-  tests across desktop Chromium and a 390px mobile viewport; consent and legal
-  routes included; no console/page errors; axe reports zero serious/critical
-  violations.
-- `APP_URL=http://127.0.0.1:8080 npm run test:model`: **pass** — synthetic
+- Reproduced the original failure in ACR run `cha8`: `npm run build` failed at
+  `vite.config.ts(18,3)` because Vite's `defineConfig` type does not accept
+  Vitest's `test` key. The repair imports `defineConfig` from `vitest/config`.
+  `tests/container-contract.test.ts` prevents both that regression and loss of
+  the ACR build-identity contract.
+- `npm ci && npm test && npm run build && cargo fmt --check && cargo clippy
+  --all-targets --all-features -- -D warnings && cargo build --release
+  --locked`: **pass**. `npm test` covers 6 tests (4 frontend utility tests, 2
+  container-contract tests) plus 2 Rust route tests.
+- Exact factory clean ACR command passed from the `.git`-excluded source tar:
+  `az acr build --registry sociobotregistry --image
+  sf-no-bot-captions:b686f7a6f240 --file Dockerfile --build-arg
+  BUILD_SHA=b686f7a6f240e2390ad729f037f6b3eb705cae54 --build-arg
+  GIT_SHA=b686f7a6f240e2390ad729f037f6b3eb705cae54 --build-arg
+  SOURCE_COMMIT=b686f7a6f240e2390ad729f037f6b3eb705cae54 /work/repo`.
+  ACR run `chak` succeeded; digest:
+  `sha256:47d54f1e99a22b2eb030ed17701083a6e28da38953860d4cc0316e653c06aa3d`.
+- Runtime contract: launched the release binary using `env -i PORT=18080`
+  only. It logged `0.0.0.0:18080`, `/health` returned `development`, `/` and a
+  made-up deep link returned the frontend shell, and `/privacy` worked. The
+  deployed container receives only `PORT=8080`; its `/health` returns the full
+  baked commit `b686f7a6f240e2390ad729f037f6b3eb705cae54`.
+- `APP_URL=http://127.0.0.1:18080 npm run test:e2e`: **pass** — 4 Playwright
+  tests across desktop Chromium and a 390px mobile viewport; consent, keyboard
+  flow, legal routes, and axe zero serious/critical violations.
+- `APP_URL=http://127.0.0.1:18080 npm run test:model`: **pass** — synthetic
   shared audio reached the AudioWorklet, same-origin model/runtime files
   loaded, and local Whisper inference completed without an audio upload.
+- Offline/update smoke: after service-worker activation, an offline navigation
+  to `/offline-recovery` returned the cached shell with one H1. Page-count
+  privacy smoke: allowed `/` returned 200; rejected `/not-allowed` returned
+  422; `npm audit --omit=dev` reported 0 vulnerabilities.
+- Live deployment verification at
+  `https://sf-no-bot-captions.orangepond-1638693f.eastus2.azurecontainerapps.io`:
+  `/health` returned the full commit; unknown routes returned 200 HTML;
+  Playwright desktop/mobile tests passed; `verify-url.sh` reported load 661 ms,
+  zero console errors, title/lang/one H1/main present, and no missing image alt
+  text or unnamed buttons.
+- Mobile Lighthouse report: **99 performance, 100 accessibility, 100 best
+  practices, 100 SEO**; FCP 1.3 s, LCP 1.6 s, CLS 0.036. The initial
+  application payload is 30.11 KB JS and 13.87 KB CSS uncompressed; fonts
+  total 53 KB. The transcription worker, WASM runtime, and model are deferred
+  until capture starts.
 - `cargo fmt --check`: **pass**.
 - `cargo clippy --all-targets --all-features -- -D warnings`: **pass**.
 - `cargo build --release --locked`: **pass**.
-- `npm audit --omit=dev`: **0 vulnerabilities**.
-- Backend smoke: `/health`, `/privacy`, a model asset, and `/api/pageview` all
-  returned successfully with the expected security headers.
-- Load smoke: 500 `/health` requests at concurrency 20 completed in 2.066 s
-  (approximately 242 requests/s), with no failures.
-- Lighthouse mobile, local production server: **100 performance, 100
-  accessibility, 100 best practices, 100 SEO**; FCP 1.1 s, LCP 1.8 s, total
-  blocking time 50 ms, CLS 0.036. The initial application payload is 30.11 KB
-  JS and 13.87 KB CSS uncompressed; fonts total 53 KB; responsive hero WebPs
-  are 36 KB and 75 KB. The 868 KB transcription worker, 21 MB WASM runtime,
-  and 42 MB model are deferred until the user starts capture.
 
 ## Run and deploy
 
@@ -67,9 +89,10 @@ npm run build
 FRONTEND_DIR=dist cargo run
 ```
 
-`docker build` could not be executed in the worker because no Docker daemon or
-CLI is installed. Both Docker build stages were independently exercised by
-`npm run build`, the pinned model download, and `cargo build --release --locked`.
+The root `Dockerfile` is a multi-stage, non-root distroless image. ACR supplies
+the source SHA as a build argument and the image bakes it into `BUILD_SHA`.
+At runtime no configuration other than `PORT` is required: frontend and SQLite
+defaults are internal to the Rust service.
 
 ## Known gaps and next steps
 
