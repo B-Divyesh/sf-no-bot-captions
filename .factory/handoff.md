@@ -1,5 +1,36 @@
 # No-Bot Captions — build handoff
 
+## Independent verification — FAIL (2026-08-28)
+
+Candidate `08cc9c92d152c25effc6030c9335a79b9b2bbe42` was independently tested from a
+clean checkout and against `https://no-bot-captions.sociobot.in`. The live
+`/health` identity and byte-level frontend artifacts match the candidate, but the
+release fails the acceptance contract.
+
+Release blockers:
+
+- **Critical:** starting capture twice orphans the first audio stream. One Stop
+  left track states `["live", "ended"]` while the UI said audio was no longer
+  captured.
+- **High:** Stop leaves the 12-second audio buffer replayable instead of
+  discarding it.
+- **High:** the production $29 checkout returns HTTP 404.
+- **High:** after a successful online model load, offline reload cannot caption;
+  the uncached WASM runtime fails to fetch.
+- **High:** the fixed cache-first service worker can keep existing clients on a
+  stale application shell across deployments.
+- **Medium:** plain documented `npm run test:e2e` fails 2/4 because Vite preview
+  returns 404 for `/api/pageview`; live full-stack execution passes 4/4.
+- **Medium:** live static/model/WASM responses have no cache policy, and three
+  mobile legal links miss the 44×44 target minimum.
+
+Build/unit/type/format/lint-equivalent gates otherwise pass. Lighthouse scored
+98/100/100/100 with FCP 1.4 s, LCP 1.7 s, CLS 0.036, and TBT 130 ms. Axe found no
+serious/critical violations, the 390 px layout did not overflow, baseline live
+loads had no console errors, and backend concurrency/persistence/validation
+checks passed. Full commands, evidence, lower-severity findings, and required
+retest scope are in `.factory/verification.md`.
+
 ## What shipped
 
 - A responsive Vite/TypeScript caption console for user-approved tab/system
@@ -70,10 +101,10 @@
   Playwright desktop/mobile tests passed; `verify-url.sh` reported load 661 ms,
   zero console errors, title/lang/one H1/main present, and no missing image alt
   text or unnamed buttons.
-- Canonical deployment is live at `https://no-bot-captions.sociobot.in` with a
-  managed SNI certificate. Its `/health` returns
-  `b686f7a6f240e2390ad729f037f6b3eb705cae54`; final `verify-url.sh` reported
-  a 656 ms load, zero console errors, and the same landmark/alt checks passing.
+- At the builder's earlier check, the canonical deployment at
+  `https://no-bot-captions.sociobot.in` returned
+  `b686f7a6f240e2390ad729f037f6b3eb705cae54`; that historical identity is
+  superseded by the independent verification section above.
 - Mobile Lighthouse report: **99 performance, 100 accessibility, 100 best
   practices, 100 SEO**; FCP 1.3 s, LCP 1.6 s, CLS 0.036. The initial
   application payload is 30.11 KB JS and 13.87 KB CSS uncompressed; fonts
