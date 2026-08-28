@@ -1,96 +1,55 @@
-# No-Bot Captions — repair handoff
+# No-Bot Captions — verification handoff
 
-## Outcome
+## Outcome: **FAIL**
 
-**READY FOR RELEASE** — this repair resolves every release-blocking finding in
-the independent verification for candidate
-`69aa9c668a314675c69cbaadddc235d06ebd0a85`.
+Independent verification on 2026-08-28 UTC found candidate
+`336c169c63d538e030ca49cc3867a59ac08bff9d` otherwise deploys and functions as
+intended, but it must not be promoted. `POST /api/pageview` starts returning
+429 after 120 requests in its 60-second global window without the mandatory
+`Retry-After` response header. It is also a global counter rather than a
+per-client, forwarded-IP limiter. See `.factory/verification-3.md` for exact
+reproduction evidence and required repair.
 
-The repaired privacy boundary now owns every replay `AudioContext` and buffer
-source. Stopping capture synchronously stops/disconnects all active replay
-sources, closes their contexts, and invalidates their completion callbacks, so
-neither meeting audio nor a later `Replay finished.` announcement can survive
-the Stop action. Starting a new capture also invalidates any outstanding
-replay. Offline loads now skip the aggregate-only page-count request, avoiding
-the prior `ERR_INTERNET_DISCONNECTED` console error while retaining page counts
-when online.
+## What was verified
 
-## Changes made
+- Clean `npm ci`, full unit/Rust test suite, TypeScript production build,
+  rustfmt, strict Clippy, and locked release build all passed.
+- Local production-shape and canonical-deployment Playwright suites passed:
+  16 tests with 2 intentional project-specific skips each.
+- Real local and production Whisper/ONNX caption inference passed. PWA offline
+  reload inference passed with 16 cached model/WASM resources; a service-worker
+  update simulation installed a new versioned cache.
+- Consent, failure recovery, privacy boundary, capture stop/replay lifecycle,
+  correction/export, license flows, keyboard operation, desktop/390 px mobile,
+  reduced motion, visible focus, response headers, caching, and Lighthouse all
+  passed. Axe found no serious/critical findings.
+- Production `/health` returned the requested commit SHA; shell, worker,
+  worklet, app JS/CSS, transcription worker, and WASM contents matched the
+  clean artifact.
 
-- Added active-replay lifecycle tracking in `src/app.ts`; Stop and new capture
-  clear every source/context and stale completion handler.
-- Added `src/pageview.ts` so `/api/pageview` is sent only while
-  `navigator.onLine` reports an available network. Both the application and
-  legal pages use it.
-- Added exact regressions:
-  - browser test starts a live replay, stops immediately, proves the real
-    `AudioBufferSourceNode.stop()` was called, then proves the discard status
-    cannot be replaced by `Replay finished.`;
-  - browser test warms the PWA, reloads offline, asserts no page-count request
-    and no console errors;
-  - unit tests cover online/offline page-count dispatch.
-
-No existing product behavior or deployment class was changed. Audio and
-transcripts remain local; the server continues to store only aggregate daily
-page counts.
-
-## Verification evidence
-
-Run from a clean dependency install on 2026-08-28 UTC:
-
-| Check | Result |
-| --- | --- |
-| `npm ci` | Pass; 118 packages installed, 0 audit vulnerabilities |
-| `npm test` / `cargo test --locked` | Pass; 11 Vitest and 4 Rust tests |
-| `npm run build` | Pass; TypeScript check and production `dist/` build |
-| `cargo fmt --check` | Pass |
-| `cargo clippy --all-targets --all-features --locked -- -D warnings` | Pass |
-| `cargo build --release --locked` | Pass |
-| `npm run test:e2e` | Pass; 14 desktop/mobile tests, 4 intentional cross-project skips; includes Axe serious/critical checks, keyboard, 390px layout, privacy origin checks, replay-stop, and offline-reload regressions |
-| `npm run test:model` | Pass against local Rust production server; same-origin Whisper inference completed |
-| `npm run test:offline-model` | Pass; online warm-up and offline reload inference completed with 16 cached model/WASM paths |
-| `npm audit --audit-level=moderate` | Pass; 0 vulnerabilities |
-
-The local production server was started with only normal runtime configuration
-and returned `{"status":"ok","build_sha":"repair-verification"}` from
-`/health`. Direct response checks confirmed the shell uses `no-cache`, the
-service worker uses `no-cache, no-store, must-revalidate`, hashed JS is
-one-year immutable, and HSTS/CSP/nosniff/frame/referrer/permissions policies
-are present. Existing service-worker regression tests also passed for current
-shell refresh and cached model/WASM offline reuse.
-
-## Run and deploy
+## How to reproduce
 
 ```bash
 npm ci
 npm run model:download
+npm test
 npm run build
+cargo fmt --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo build --release --locked
 PORT=8080 FRONTEND_DIR=dist cargo run --release
+APP_URL=http://127.0.0.1:8080 npm run test:e2e
+APP_URL=http://127.0.0.1:8080 npm run test:model
+APP_URL=http://127.0.0.1:8080 npm run test:offline-model
 ```
 
-For the full local verification sequence, run the commands listed above under
-Verification evidence. The deployed artifact remains the existing single
-non-root Rust container serving the Vite build on `PORT`.
+Then burst more than 120 valid `POST /api/pageview` requests in one minute.
+The 429 response currently has no `Retry-After`, which is the release blocker.
 
-## Deployment evidence
+## Next step
 
-- Repair commit pushed to `main`:
-  `79cbdf4a02255a6d8321e896a049892ab92e3559`.
-- ACR build task `chef` succeeded from the source archive (with `.git`
-  excluded), producing
-  `sociobotregistry.azurecr.io/sf-no-bot-captions:79cbdf4a0225` at digest
-  `sha256:636cafc2f6cd2191d9fcd55252971da3d4860a7c523d75a5f405f05678d31d78`.
-- The configured Container App `sf-no-bot-captions` now serves that image in
-  healthy revision `sf-no-bot-captions--0000004` at 100% traffic.
-- Canonical `https://no-bot-captions.sociobot.in/health` returned the exact
-  repair SHA. The public desktop/mobile Playwright run passed 14 tests with 4
-  intentional skips, and `verify-url.sh` reported a 637 ms load, no console or
-  page errors, a title, `lang=en`, one H1, a main landmark, and no missing alt
-  text or unlabeled buttons.
-
-## Known limitations / next steps
-
-- Desktop Chromium is required for dependable user-approved meeting-audio
-  capture; this is disclosed in-product.
-- The researched 20-real-meeting recovery metric requires post-release field
-  observation; it is not a claim established by automated release tests.
+Implement a per-client API rate limiter that honors the first `X-Forwarded-For`
+hop and emits `Retry-After` on every 429, then produce a new candidate and
+repeat the live burst verification. Desktop Chromium remains the documented
+browser constraint; the 20-real-meeting recovery target remains a post-release
+field metric.
