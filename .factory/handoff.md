@@ -70,6 +70,10 @@
   Playwright desktop/mobile tests passed; `verify-url.sh` reported load 661 ms,
   zero console errors, title/lang/one H1/main present, and no missing image alt
   text or unnamed buttons.
+- Canonical deployment is live at `https://no-bot-captions.sociobot.in` with a
+  managed SNI certificate. Its `/health` returns
+  `b686f7a6f240e2390ad729f037f6b3eb705cae54`; final `verify-url.sh` reported
+  a 656 ms load, zero console errors, and the same landmark/alt checks passing.
 - Mobile Lighthouse report: **99 performance, 100 accessibility, 100 best
   practices, 100 SEO**; FCP 1.3 s, LCP 1.6 s, CLS 0.036. The initial
   application payload is 30.11 KB JS and 13.87 KB CSS uncompressed; fonts
