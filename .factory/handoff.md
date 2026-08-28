@@ -72,11 +72,25 @@ For the full local verification sequence, run the commands listed above under
 Verification evidence. The deployed artifact remains the existing single
 non-root Rust container serving the Vite build on `PORT`.
 
+## Deployment evidence
+
+- Repair commit pushed to `main`:
+  `79cbdf4a02255a6d8321e896a049892ab92e3559`.
+- ACR build task `chef` succeeded from the source archive (with `.git`
+  excluded), producing
+  `sociobotregistry.azurecr.io/sf-no-bot-captions:79cbdf4a0225` at digest
+  `sha256:636cafc2f6cd2191d9fcd55252971da3d4860a7c523d75a5f405f05678d31d78`.
+- The configured Container App `sf-no-bot-captions` now serves that image in
+  healthy revision `sf-no-bot-captions--0000004` at 100% traffic.
+- Canonical `https://no-bot-captions.sociobot.in/health` returned the exact
+  repair SHA. The public desktop/mobile Playwright run passed 14 tests with 4
+  intentional skips, and `verify-url.sh` reported a 637 ms load, no console or
+  page errors, a title, `lang=en`, one H1, a main landmark, and no missing alt
+  text or unlabeled buttons.
+
 ## Known limitations / next steps
 
 - Desktop Chromium is required for dependable user-approved meeting-audio
   capture; this is disclosed in-product.
 - The researched 20-real-meeting recovery metric requires post-release field
   observation; it is not a claim established by automated release tests.
-- After deployment, confirm the canonical `/health` `build_sha` matches this
-  repair commit and repeat the live identity check.
