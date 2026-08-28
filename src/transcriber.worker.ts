@@ -33,7 +33,7 @@ self.onmessage = async (event: MessageEvent<{ id: string; audio: Float32Array }>
   const { id, audio } = event.data;
   try {
     const run = await getTranscriber();
-    const result = await run(audio, { language: 'en', task: 'transcribe', return_timestamps: true });
+    const result = await run(audio, { return_timestamps: true });
     const first = Array.isArray(result) ? result[0] : result;
     self.postMessage({ type: 'result', id, text: first?.text?.trim() ?? '' });
   } catch (error) {

@@ -1,0 +1,30 @@
+{
+  "slug": "no-bot-captions",
+  "title": "No-Bot Captions",
+  "territory": "utilities",
+  "user": "People who need real-time captions in Google Meet but cannot invite a recording bot into a meeting.",
+  "evidence": [
+    {
+      "url": "https://hn.algolia.com/api/v1/items/43749577",
+      "date": "2025-04-21",
+      "quote_or_summary": "The user asks for real-time GMeet transcription specifically without meeting bots; a reply points to a client-side-only product."
+    },
+    {
+      "url": "https://github.com/OpenWhispr/openwhispr/issues/1889",
+      "date": "2026-08-27",
+      "quote_or_summary": "A local transcription user reports that initial output can omit most of a sentence until they manually re-transcribe it, showing the need for visible recovery rather than blind trust."
+    }
+  ],
+  "recurrence": "The privacy constraint is explicit, and a separate local-transcription report shows why a caption aid needs a rapid correction path.",
+  "current_workaround": "Invite Otter/Fireflies-style bots, rely on platform captions, or record the meeting for later transcription.",
+  "incumbents_and_gap": "Otter, Fireflies, and Meet captions offer transcription, but bot invitations create social/privacy friction and platform captions are not a portable, user-owned correction surface.",
+  "smallest_useful_product": "A local desktop companion that captures only user-approved system audio, displays large rolling captions, marks dropped/uncertain segments, and lets the user replay the last 12 seconds. Non-goals: cloud storage, meeting attendance bots, speaker analytics, or hidden recording.",
+  "success_measure": "In 20 captioned meetings, users recover an uncertain segment in under 15 seconds at least 90% of the time, with no bot participant added.",
+  "artifact_class": "web-with-backend",
+  "monetization": "freemium — a local single-device mode can be free; paid installs can cover packaged offline models and support.",
+  "constraints": "Obtain user consent and prominently show capture state; local model licensing must permit redistribution; never upload meeting audio by default.",
+  "est_build_effort": "L",
+  "why_distinct": "It is a private caption display and repair loop, not a meeting intelligence bot.",
+  "confidence": 4,
+  "state": "RESEARCHED"
+}

@@ -14,7 +14,7 @@ WORKDIR /src
 COPY scripts/download-model.mjs ./scripts/download-model.mjs
 RUN MODEL_DIR=/model node scripts/download-model.mjs
 
-FROM rust:1.85-bookworm AS backend
+FROM rust:1.89-bookworm AS backend
 WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
