@@ -1,0 +1,10 @@
+{
+  "name": "No-Bot Captions",
+  "short_name": "No-Bot",
+  "description": "Private, local meeting captions with a fast repair loop.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080d0c",
+  "theme_color": "#080d0c",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
