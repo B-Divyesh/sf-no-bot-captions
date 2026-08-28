@@ -22,10 +22,15 @@ RUN cargo build --release --locked
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 WORKDIR /app
+ARG BUILD_SHA=dev
+ARG GIT_SHA=dev
+ARG SOURCE_COMMIT=dev
 COPY --from=backend /src/target/release/no-bot-captions /app/no-bot-captions
 COPY --from=frontend /src/dist /app/dist
 COPY --from=model /model /app/dist/models
-ENV PORT=8080 FRONTEND_DIR=/app/dist DATABASE_URL=sqlite:///tmp/no-bot-captions.sqlite
+# ACR supplies BUILD_SHA from the source commit.  Keep it in the image so the
+# runtime needs only PORT (and has a useful local-build default).
+ENV BUILD_SHA=${BUILD_SHA}
 EXPOSE 8080
 USER nonroot:nonroot
 ENTRYPOINT ["/app/no-bot-captions"]
