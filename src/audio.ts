@@ -101,40 +101,51 @@ export class CaptureSession {
   private sink?: GainNode;
   private audioTrack?: MediaStreamTrack;
   private endedByUser = false;
+  private starting = false;
 
   async start(onSamples: (samples: Float32Array) => void, onEnded?: () => void): Promise<{ source: string }> {
     if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('System audio capture is not available in this browser.');
-    this.stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      preferCurrentTab: true,
-      selfBrowserSurface: 'exclude',
-      systemAudio: 'include',
-    } as DisplayMediaStreamOptions);
-    const audioTrack = this.stream.getAudioTracks()[0];
-    if (!audioTrack) {
+    if (this.starting || this.stream) throw new Error('Audio capture is already active. Stop it before choosing another source.');
+    this.starting = true;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        preferCurrentTab: true,
+        selfBrowserSurface: 'exclude',
+        systemAudio: 'include',
+      } as DisplayMediaStreamOptions);
+      this.stream = stream;
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        this.stop();
+        throw new Error('No meeting audio was shared. Choose a browser tab and turn on “Share tab audio”.');
+      }
+      const settings = audioTrack.getSettings();
+      this.audioTrack = audioTrack;
+      this.endedByUser = false;
+      this.context = new AudioContext({ latencyHint: 'interactive' });
+      await this.context.audioWorklet.addModule('/audio-worklet.js');
+      this.source = this.context.createMediaStreamSource(new MediaStream([audioTrack]));
+      this.node = new AudioWorkletNode(this.context, 'caption-capture');
+      this.sink = this.context.createGain();
+      this.sink.gain.value = 0;
+      this.node.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        onSamples(downsample(event.data, this.context?.sampleRate ?? 48_000));
+      };
+      this.source.connect(this.node).connect(this.sink).connect(this.context.destination);
+      audioTrack.addEventListener('ended', () => {
+        const shouldNotify = !this.endedByUser;
+        this.stop();
+        if (shouldNotify) onEnded?.();
+      }, { once: true });
+      return { source: settings.displaySurface ? `${settings.displaySurface} audio` : 'Shared audio' };
+    } catch (error) {
       this.stop();
-      throw new Error('No meeting audio was shared. Choose a browser tab and turn on “Share tab audio”.');
+      throw error;
+    } finally {
+      this.starting = false;
     }
-    const settings = audioTrack.getSettings();
-    this.audioTrack = audioTrack;
-    this.endedByUser = false;
-    this.context = new AudioContext({ latencyHint: 'interactive' });
-    await this.context.audioWorklet.addModule('/audio-worklet.js');
-    this.source = this.context.createMediaStreamSource(new MediaStream([audioTrack]));
-    this.node = new AudioWorkletNode(this.context, 'caption-capture');
-    this.sink = this.context.createGain();
-    this.sink.gain.value = 0;
-    this.node.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      onSamples(downsample(event.data, this.context?.sampleRate ?? 48_000));
-    };
-    this.source.connect(this.node).connect(this.sink).connect(this.context.destination);
-    audioTrack.addEventListener('ended', () => {
-      const shouldNotify = !this.endedByUser;
-      this.stop();
-      if (shouldNotify) onEnded?.();
-    }, { once: true });
-    return { source: settings.displaySurface ? `${settings.displaySurface} audio` : 'Shared audio' };
   }
 
   stop(): void {
@@ -147,6 +158,9 @@ export class CaptureSession {
     this.stream = undefined;
     this.audioTrack = undefined;
     this.context = undefined;
+    this.node = undefined;
+    this.source = undefined;
+    this.sink = undefined;
   }
 
   setPaused(paused: boolean): void {

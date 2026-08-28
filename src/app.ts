@@ -45,6 +45,17 @@ class LocalTranscriber {
       this.worker?.postMessage({ id, audio: copy }, [copy.buffer]);
     });
   }
+
+  reset(): void {
+    this.worker?.terminate();
+    this.worker = undefined;
+    for (const request of this.pending.values()) request.reject(new Error('Capture stopped.'));
+    this.pending.clear();
+  }
+}
+
+export function captionCorrectionError(value: string): string | null {
+  return value.trim() ? null : 'Enter the corrected caption, or choose Cancel to keep the original.';
 }
 
 export class CaptionApp {
@@ -60,6 +71,8 @@ export class CaptionApp {
   private transcriptContext = '';
   private startedAt = 0;
   private timer?: number;
+  private captureStarting = false;
+  private captureEpoch = 0;
   private license: LicenseState = { unlocked: false, notice: '' };
   private root: HTMLElement;
 
@@ -194,21 +207,27 @@ export class CaptionApp {
   private bind(): void {
     const dialog = this.byId<HTMLDialogElement>('consent-dialog');
     const open = () => {
+      if (this.running || this.captureStarting) return;
       this.byId('consent-error').textContent = '';
+      this.byId<HTMLInputElement>('consent-permission').checked = false;
+      this.byId<HTMLInputElement>('consent-local').checked = false;
       dialog.showModal();
       this.byId<HTMLInputElement>('consent-permission').focus();
     };
-    this.byId('hero-start').addEventListener('click', open);
+    this.byId('hero-start').addEventListener('click', () => {
+      if (this.running) this.stop('Stopped — audio and the repair buffer were discarded.');
+      else open();
+    });
     this.byId('console-start').addEventListener('click', open);
     this.byId('confirm-capture').addEventListener('click', () => void this.confirmCapture(dialog));
-    this.byId('stop-button').addEventListener('click', () => this.stop('Stopped — audio is no longer captured.'));
+    this.byId('stop-button').addEventListener('click', () => this.stop('Stopped — audio and the repair buffer were discarded.'));
     this.byId('pause-button').addEventListener('click', () => this.togglePause());
     this.byId('replay-button').addEventListener('click', () => void this.play(this.ring.last()));
     this.byId('export-button').addEventListener('click', () => this.exportText());
     this.byId<HTMLFormElement>('license-form').addEventListener('submit', (event) => void this.restoreLicense(event));
     document.addEventListener('keydown', (event) => {
       const target = event.target as HTMLElement;
-      if (/INPUT|TEXTAREA|BUTTON|A/.test(target.tagName) || dialog.open) return;
+      if (/INPUT|TEXTAREA|SELECT/.test(target.tagName) || target.isContentEditable || dialog.open || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.code === 'Space' && this.running) { event.preventDefault(); this.togglePause(); }
       if (event.key.toLocaleLowerCase() === 'r' && this.ring.length) void this.play(this.ring.last());
       if (event.key.toLocaleLowerCase() === 't') {
@@ -219,6 +238,7 @@ export class CaptionApp {
   }
 
   private async confirmCapture(dialog: HTMLDialogElement): Promise<void> {
+    if (this.running || this.captureStarting) return;
     const hasPermission = this.byId<HTMLInputElement>('consent-permission').checked;
     const acceptsLocal = this.byId<HTMLInputElement>('consent-local').checked;
     if (!hasPermission || !acceptsLocal) {
@@ -226,6 +246,8 @@ export class CaptionApp {
       return;
     }
     dialog.close();
+    this.captureStarting = true;
+    this.setCaptureUi('starting');
     this.setEngineStatus('Waiting for your system audio choice…');
     try {
       const selected = await this.capture.start((samples) => this.receiveAudio(samples), () => this.stop('Sharing ended in the browser.'));
@@ -241,6 +263,8 @@ export class CaptionApp {
         : error instanceof Error ? error.message : 'Meeting audio could not be opened.';
       this.setEngineStatus(message, true);
       this.setCaptureUi('idle');
+    } finally {
+      this.captureStarting = false;
     }
   }
 
@@ -258,6 +282,7 @@ export class CaptionApp {
   }
 
   private async transcribeCurrent(): Promise<void> {
+    const epoch = this.captureEpoch;
     const audio = this.ring.last();
     if (audio.length < SAMPLE_RATE * 2) return;
     const level = rms(audio);
@@ -266,6 +291,7 @@ export class CaptionApp {
     this.setEngineStatus('Resolving the latest words on this device…');
     try {
       const raw = await this.transcriber.transcribe(audio);
+      if (!this.running || epoch !== this.captureEpoch) return;
       const text = novelTranscript(this.transcriptContext, raw);
       const reason = uncertainty(text, level);
       if (text || reason) {
@@ -275,6 +301,7 @@ export class CaptionApp {
       }
       this.setEngineStatus('Listening locally. Audio is held only for the 12-second repair window.');
     } catch (error) {
+      if (!this.running || epoch !== this.captureEpoch) return;
       const detail = error instanceof Error ? error.message : 'Unknown model error';
       const caption = this.addCaption('Caption engine needs attention.', 'The local model could not process this segment. Retry when the model is available.');
       this.clips.set(caption.id, audio.slice());
@@ -311,6 +338,8 @@ export class CaptionApp {
       label.textContent = `Uncertain — ${caption.reason}`;
       const replay = this.actionButton('Replay 12 s', () => void this.play(this.clips.get(caption.id) ?? this.ring.last()));
       const retry = this.actionButton('Try again', () => void this.retry(caption.id));
+      replay.dataset.audioAction = 'replay';
+      retry.dataset.audioAction = 'retry';
       const edit = this.actionButton('Edit text', () => this.editCaption(caption.id));
       repair.append(label, replay, retry, edit);
       item.append(repair);
@@ -360,15 +389,22 @@ export class CaptionApp {
     input.id = `edit-${id}`;
     input.value = original;
     input.rows = 3;
+    const validation = document.createElement('p');
+    validation.className = 'edit-error';
+    validation.id = `edit-error-${id}`;
+    validation.setAttribute('role', 'alert');
+    input.setAttribute('aria-describedby', validation.id);
+    input.addEventListener('input', () => { validation.textContent = ''; });
     const actions = document.createElement('div');
     actions.className = 'edit-actions';
     actions.append(this.actionButton('Save correction', () => {
       const value = input.value.trim();
-      if (!value) return;
+      const error = captionCorrectionError(value);
+      if (error) { validation.textContent = error; input.focus(); return; }
       caption.text = value; caption.uncertain = false; caption.reason = undefined;
       this.replaceCaption(caption);
     }), this.actionButton('Cancel', () => this.replaceCaption(caption)));
-    item.append(label, input, actions);
+    item.append(label, input, validation, actions);
     input.focus();
   }
 
@@ -399,25 +435,40 @@ export class CaptionApp {
   }
 
   private stop(message: string): void {
-    if (!this.running) return;
+    const hadActiveCapture = this.running || this.captureStarting;
     this.running = false;
+    this.captureStarting = false;
     this.paused = false;
+    this.captureEpoch += 1;
     this.capture.stop();
+    this.transcriber.reset();
+    this.ring.clear();
+    this.clips.clear();
+    this.samplesSinceRun = 0;
+    this.busy = false;
     if (this.timer) window.clearInterval(this.timer);
     this.timer = undefined;
     this.setCaptureUi('idle');
+    this.byId<HTMLButtonElement>('replay-button').disabled = true;
+    this.byId<HTMLElement>('level-meter').style.width = '0%';
+    document.querySelectorAll<HTMLButtonElement>('[data-audio-action]').forEach((button) => { button.disabled = true; });
     this.setEngineStatus(message);
-    if (this.license.unlocked && this.captions.length) this.saveArchive();
+    if (hadActiveCapture && this.license.unlocked && this.captions.length) this.saveArchive();
   }
 
-  private setCaptureUi(state: 'idle' | 'capturing' | 'paused'): void {
+  private setCaptureUi(state: 'idle' | 'starting' | 'capturing' | 'paused'): void {
     const active = state !== 'idle';
     document.querySelector<HTMLElement>('.console')?.setAttribute('data-state', state);
-    this.byId('capture-label').textContent = state === 'capturing' ? 'Capturing — local only' : state === 'paused' ? 'Paused — audio blocked' : 'Ready — not capturing';
+    this.byId('capture-label').textContent = state === 'starting' ? 'Opening audio picker…' : state === 'capturing' ? 'Capturing — local only' : state === 'paused' ? 'Paused — audio blocked' : 'Ready — not capturing';
     this.byId<HTMLButtonElement>('console-start').hidden = active;
-    this.byId<HTMLButtonElement>('pause-button').hidden = !active;
-    this.byId<HTMLButtonElement>('stop-button').hidden = !active;
+    this.byId<HTMLButtonElement>('pause-button').hidden = !this.running;
+    this.byId<HTMLButtonElement>('stop-button').hidden = !this.running;
     this.byId<HTMLButtonElement>('pause-button').innerHTML = state === 'paused' ? 'Resume captions <kbd>Space</kbd>' : 'Pause captions <kbd>Space</kbd>';
+    const hero = this.byId<HTMLButtonElement>('hero-start');
+    hero.textContent = this.running ? 'Stop captions' : state === 'starting' ? 'Opening audio picker…' : 'Choose meeting audio';
+    hero.disabled = state === 'starting';
+    hero.classList.toggle('danger', this.running);
+    hero.classList.toggle('primary', !this.running);
     if (!active) { this.byId('source-label').textContent = 'No source'; this.byId('elapsed').textContent = '00:00'; }
   }
 

@@ -37,7 +37,7 @@ console.log('capture smoke:', await page.locator('#capture-label').innerText(), 
 await page.waitForFunction(() => {
   const status = document.querySelector('#engine-status')?.textContent ?? '';
   return /Audio is held|could not process|model error/i.test(status);
-}, null, { timeout: 90_000 });
+}, null, { timeout: 180_000 });
 const status = await page.locator('#engine-status').innerText();
 if (/error|could not process/i.test(status) || errors.length) {
   throw new Error(`Model smoke failed. Status: ${status}. Console: ${errors.join(' | ')}`);

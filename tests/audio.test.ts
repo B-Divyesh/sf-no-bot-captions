@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AudioRing, downsample, novelTranscript, rms, uncertainty } from '../src/audio';
+import { captionCorrectionError } from '../src/app';
 
 describe('audio repair utilities', () => {
   it('keeps only the requested rolling window', () => {
@@ -23,5 +24,10 @@ describe('audio repair utilities', () => {
     expect(uncertainty('maybe', 0.03)).toMatch(/short fragment/i);
     expect(uncertainty('a clear complete phrase', 0.03)).toBeNull();
     expect(rms(new Float32Array([1, -1]))).toBe(1);
+  });
+
+  it('requires visible text when saving a manual correction', () => {
+    expect(captionCorrectionError('   ')).toMatch(/enter the corrected caption/i);
+    expect(captionCorrectionError('corrected words')).toBeNull();
   });
 });

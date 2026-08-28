@@ -150,6 +150,7 @@ async fn record_pageview(
 }
 
 async fn security_headers(request: Request<Body>, next: Next) -> Response {
+    let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -162,6 +163,10 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
     );
     headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers.insert(
+        HeaderName::from_static("strict-transport-security"),
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+    headers.insert(
         HeaderName::from_static("permissions-policy"),
         HeaderValue::from_static(
             "camera=(), microphone=(), geolocation=(), display-capture=(self)",
@@ -171,7 +176,37 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.sociobot.in; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://api.sociobot.in"),
     );
+    let cache_policy = if path == "/sw.js" {
+        "no-cache, no-store, must-revalidate"
+    } else if is_hashed_asset(&path) {
+        "public, max-age=31536000, immutable"
+    } else if path.starts_with("/models/")
+        || path.starts_with("/wasm/")
+        || path.starts_with("/fonts/")
+        || path.starts_with("/assets/")
+    {
+        "public, max-age=86400, stale-while-revalidate=604800"
+    } else {
+        "no-cache"
+    };
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_policy),
+    );
     response
+}
+
+fn is_hashed_asset(path: &str) -> bool {
+    let Some(file) = path.strip_prefix("/assets/") else {
+        return false;
+    };
+    let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+    if stem.len() < 10 || stem.as_bytes().get(stem.len() - 9) != Some(&b'-') {
+        return false;
+    }
+    stem.as_bytes()[stem.len() - 8..]
+        .iter()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, b'_' | b'-'))
 }
 
 #[cfg(test)]
@@ -196,6 +231,11 @@ mod tests {
             "<!doctype html><title>test</title>",
         )
         .unwrap();
+        std::fs::create_dir_all(static_dir.path().join("assets")).unwrap();
+        std::fs::create_dir_all(static_dir.path().join("wasm")).unwrap();
+        std::fs::write(static_dir.path().join("assets/app-a1b2c3d4.js"), "ok").unwrap();
+        std::fs::write(static_dir.path().join("wasm/runtime.wasm"), "ok").unwrap();
+        std::fs::write(static_dir.path().join("sw.js"), "ok").unwrap();
         router(pool, static_dir.keep(), "test-sha")
     }
 
@@ -240,5 +280,73 @@ mod tests {
             app.oneshot(invalid).await.unwrap().status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
+    }
+
+    #[tokio::test]
+    async fn response_policy_revalidates_shell_and_caches_runtime() {
+        let app = test_app().await;
+        let shell = app
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-cache");
+        assert_eq!(
+            shell.headers()["strict-transport-security"],
+            "max-age=31536000; includeSubDomains"
+        );
+
+        let worker = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/sw.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            worker.headers()[header::CACHE_CONTROL],
+            "no-cache, no-store, must-revalidate"
+        );
+
+        let hashed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/app-a1b2c3d4.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            hashed.headers()[header::CACHE_CONTROL],
+            "public, max-age=31536000, immutable"
+        );
+
+        let runtime = app
+            .oneshot(
+                Request::builder()
+                    .uri("/wasm/runtime.wasm")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.headers()[header::CACHE_CONTROL],
+            "public, max-age=86400, stale-while-revalidate=604800"
+        );
+    }
+
+    #[test]
+    fn hashed_asset_detection_requires_a_content_hash() {
+        assert!(is_hashed_asset("/assets/index-a1B2c3D4.js"));
+        assert!(is_hashed_asset("/assets/index-DcmLEc_y.js"));
+        assert!(is_hashed_asset("/assets/transcriber.worker-B0rugTU4.js"));
+        assert!(!is_hashed_asset("/assets/private-signal-console.webp"));
+        assert!(!is_hashed_asset("/sw.js"));
     }
 }

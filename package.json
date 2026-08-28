@@ -6,12 +6,13 @@
   "scripts": {
     "postinstall": "node scripts/copy-runtime.mjs",
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/version-service-worker.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run && cargo test",
     "test:frontend": "vitest run",
     "test:e2e": "playwright test",
     "test:model": "node scripts/model-smoke.mjs",
+    "test:offline-model": "node scripts/offline-model-smoke.mjs",
     "model:download": "node scripts/download-model.mjs"
   },
   "dependencies": {

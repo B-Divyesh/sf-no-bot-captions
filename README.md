@@ -57,9 +57,13 @@ pinned Git revision and copies it into `dist/models`.
 npm test                 # Vitest utility tests + Rust route tests
 npm run build
 npm run test:e2e         # desktop + 390px-class mobile, including axe checks
-npm run test:model       # with preview running; loads/runs the local model
 cargo fmt --check
 ```
+
+The browser suite starts the production Rust/Vite shape itself. For real model
+and offline-reload coverage, first run `npm run model:download && npm run build`,
+serve it with `FRONTEND_DIR=dist cargo run`, then run `npm run test:model` and
+`npm run test:offline-model` with `APP_URL` set to that server.
 
 Keyboard shortcuts while the console is active: Space pauses/resumes capture,
 R replays the rolling buffer, and T retries the latest uncertain line. All
