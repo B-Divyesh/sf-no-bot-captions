@@ -4,8 +4,7 @@
 
 This repair resolves V3-01 from `.factory/verification-3.md` without changing
 the researched job or any previously passing caption behavior. The repaired
-product source was committed as `f563742afcf60271523219b77060403355a59c37` and
-deployed to `https://no-bot-captions.sociobot.in`.
+product is deployed to `https://no-bot-captions.sociobot.in`.
 
 ## Repair
 
@@ -107,9 +106,10 @@ APP_URL=http://127.0.0.1:8080 npm run test:offline-model
 ```
 
 To exercise the rate-limit regression manually, send 121 valid JSON page-view
-requests with the same first `X-Forwarded-For` value. Requests 1–120 return
-200; request 121 returns 429 with numeric `Retry-After`. A different first
-forwarded address receives a separate allowance.
+requests with the same first `X-Forwarded-For` value. The burst must include a
+429 with numeric `Retry-After`; its first denied request can arrive before 121
+when ingress spreads traffic across fewer than the configured three replicas.
+A different first forwarded address receives a separate allowance.
 
 ## Known gaps
 
