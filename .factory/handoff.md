@@ -19,11 +19,16 @@ counter. It blocked unrelated users together and emitted a bare 429.
 - Replaced that counter with a one-minute, process-local client map at the
   `/api` router boundary. It keys on the first valid `X-Forwarded-For` address
   and uses the peer socket address if that header is absent or malformed.
+- A final live check exposed ingress distribution across two replicas. The
+  limiter now budgets 40 requests per replica; with the deployment's fixed
+  maximum of three replicas, one client has a service-wide maximum of 120
+  requests per minute even while a burst is distributed.
 - Every denied API response now includes a numeric `Retry-After`; `/health`
   remains the intentional rate-limit exemption.
 - The temporary client key expires after one minute and is never persisted to
   SQLite. Privacy and README copy now disclose that narrow in-memory use.
-- Added exact Rust regression coverage for the 120th/121st request boundary,
+- Added exact Rust regression coverage for the per-replica 40th/41st request
+  boundary, the asserted 120-request deployment ceiling across three replicas,
   numeric retry header, first forwarded hop, independent second client, and
   malformed-header socket fallback.
 - Updated the container stage to `rust:1-slim` (current stable), with a test

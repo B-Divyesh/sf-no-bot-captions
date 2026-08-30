@@ -30,7 +30,12 @@ pub struct AppState {
     api_rate: Arc<tokio::sync::Mutex<ClientRateLimiter>>,
 }
 
+// The factory deployment may run up to three replicas. Keeping each replica
+// at 40 requests per client preserves the intended 120-request service-wide
+// minute ceiling even when ingress distributes a burst between all replicas.
 const API_RATE_LIMIT: u32 = 120;
+const MAX_DEPLOYED_REPLICAS: u32 = 3;
+const API_RATE_LIMIT_PER_REPLICA: u32 = API_RATE_LIMIT / MAX_DEPLOYED_REPLICAS;
 const API_RATE_WINDOW: Duration = Duration::from_secs(60);
 
 struct ClientRateWindow {
@@ -55,7 +60,7 @@ impl ClientRateLimiter {
                 started: Instant::now(),
                 count: 0,
             });
-        if window.count >= API_RATE_LIMIT {
+        if window.count >= API_RATE_LIMIT_PER_REPLICA {
             return Err(API_RATE_WINDOW.saturating_sub(window.started.elapsed()));
         }
         window.count += 1;
@@ -367,7 +372,8 @@ mod tests {
     #[tokio::test]
     async fn api_limit_is_per_first_forwarded_client_and_sets_numeric_retry_after() {
         let app = test_app().await;
-        for _ in 0..API_RATE_LIMIT {
+        assert_eq!(API_RATE_LIMIT, 120);
+        for _ in 0..API_RATE_LIMIT_PER_REPLICA {
             let response = app
                 .clone()
                 .oneshot(pageview_request("198.51.100.24, 10.0.0.8"))
