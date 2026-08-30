@@ -26,12 +26,14 @@ limitation without requesting microphone access.
 - The 42 MB quantized `whisper-tiny.en` model is fetched from the same origin,
   cached in the browser, and executed with Transformers.js/ONNX WebAssembly.
 - The backend receives no meeting audio or transcript. It stores only daily
-  aggregate page counts by one of `/`, `/privacy`, or `/terms`.
+  aggregate page counts by one of `/`, `/privacy`, or `/terms`. A temporary,
+  per-network-address in-memory limit protects that endpoint for one minute;
+  addresses are never written to SQLite.
 - Supporter archives and license state use localStorage on the user's device.
 
 ## Develop
 
-Requirements: Node 22+, Rust 1.89+, and a Chromium browser.
+Requirements: Node 22+, current stable Rust, and a Chromium browser.
 
 ```bash
 npm ci
@@ -86,7 +88,7 @@ Configuration is environment-only:
 - `BUILD_SHA` — returned by `/health`
 
 The backend has structured JSON logs, graceful shutdown, strict response
-headers, a privacy-preserving global page-count rate limit, and `/health`.
+headers, a privacy-preserving per-client page-count rate limit, and `/health`.
 A basic load smoke can be run with `oha -n 1000 -c 20 http://localhost:8080/health`
 (or equivalent); the endpoint is read-only and does not touch SQLite.
 

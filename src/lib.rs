@@ -1,4 +1,6 @@
 use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
     path::Path,
     sync::Arc,
     time::{Duration, Instant},
@@ -6,10 +8,10 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::State,
-    http::{header, HeaderName, HeaderValue, Request},
+    extract::{ConnectInfo, Request, State},
+    http::{header, HeaderName, HeaderValue, Request as HttpRequest},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -25,12 +27,40 @@ use tower_http::{
 pub struct AppState {
     pool: SqlitePool,
     build_sha: Arc<str>,
-    pageview_rate: Arc<tokio::sync::Mutex<RateWindow>>,
+    api_rate: Arc<tokio::sync::Mutex<ClientRateLimiter>>,
 }
 
-struct RateWindow {
+const API_RATE_LIMIT: u32 = 120;
+const API_RATE_WINDOW: Duration = Duration::from_secs(60);
+
+struct ClientRateWindow {
     started: Instant,
     count: u32,
+}
+
+struct ClientRateLimiter {
+    clients: HashMap<String, ClientRateWindow>,
+}
+
+impl ClientRateLimiter {
+    /// Reserve one request for this client. Client windows are intentionally
+    /// process-local and expire after a minute; they never reach SQLite.
+    fn take(&mut self, client: String) -> Result<(), Duration> {
+        self.clients
+            .retain(|_, window| window.started.elapsed() < API_RATE_WINDOW);
+        let window = self
+            .clients
+            .entry(client)
+            .or_insert_with(|| ClientRateWindow {
+                started: Instant::now(),
+                count: 0,
+            });
+        if window.count >= API_RATE_LIMIT {
+            return Err(API_RATE_WINDOW.saturating_sub(window.started.elapsed()));
+        }
+        window.count += 1;
+        Ok(())
+    }
 }
 
 #[derive(Serialize)]
@@ -76,12 +106,19 @@ pub fn router(
     let state = AppState {
         pool,
         build_sha: build_sha.into(),
-        pageview_rate: Arc::new(tokio::sync::Mutex::new(RateWindow {
-            started: Instant::now(),
-            count: 0,
+        api_rate: Arc::new(tokio::sync::Mutex::new(ClientRateLimiter {
+            clients: HashMap::new(),
         })),
     };
-    let api = Router::new().route("/pageview", post(record_pageview));
+    // The product has one mutating API route today. Keeping the limiter at the
+    // /api router boundary makes future API routes protected by default while
+    // leaving the intentional /health check exemption available to deployers.
+    let api = Router::new()
+        .route("/pageview", post(record_pageview))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            api_rate_limit,
+        ));
 
     Router::new()
         .route("/health", get(health))
@@ -107,19 +144,6 @@ async fn record_pageview(
     State(state): State<AppState>,
     Json(input): Json<PageView>,
 ) -> (axum::http::StatusCode, Json<Recorded>) {
-    let mut rate = state.pageview_rate.lock().await;
-    if rate.started.elapsed() >= Duration::from_secs(60) {
-        rate.started = Instant::now();
-        rate.count = 0;
-    }
-    if rate.count >= 120 {
-        return (
-            axum::http::StatusCode::TOO_MANY_REQUESTS,
-            Json(Recorded { recorded: false }),
-        );
-    }
-    rate.count += 1;
-    drop(rate);
     if !matches!(input.path.as_str(), "/" | "/privacy" | "/terms") {
         return (
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -149,7 +173,55 @@ async fn record_pageview(
     }
 }
 
-async fn security_headers(request: Request<Body>, next: Next) -> Response {
+async fn api_rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let client = client_key(&request);
+    let retry_after = {
+        let mut limiter = state.api_rate.lock().await;
+        limiter.take(client).err()
+    };
+    if let Some(remaining) = retry_after {
+        let mut response = (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            Json(Recorded { recorded: false }),
+        )
+            .into_response();
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, retry_after_header(remaining));
+        return response;
+    }
+    next.run(request).await
+}
+
+/// Trust the first value injected by the factory ingress. A direct/local
+/// request has no forwarding header, so use the actual peer address instead.
+/// Invalid forwarding headers deliberately fall back rather than becoming a
+/// user-controlled client key.
+fn client_key(request: &HttpRequest<Body>) -> String {
+    let forwarded = request
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .and_then(|value| value.parse::<IpAddr>().ok());
+    if let Some(address) = forwarded {
+        return format!("forwarded:{address}");
+    }
+    request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| format!("socket:{}", address.ip()))
+        .unwrap_or_else(|| "socket:unknown".to_string())
+}
+
+fn retry_after_header(remaining: Duration) -> HeaderValue {
+    let milliseconds = remaining.as_millis().max(1);
+    let seconds = milliseconds.div_ceil(1_000);
+    HeaderValue::from_str(&seconds.to_string()).expect("a numeric Retry-After header is valid")
+}
+
+async fn security_headers(request: HttpRequest<Body>, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -280,6 +352,69 @@ mod tests {
             app.oneshot(invalid).await.unwrap().status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
+    }
+
+    fn pageview_request(client: &str) -> HttpRequest<Body> {
+        HttpRequest::builder()
+            .method("POST")
+            .uri("/api/pageview")
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", client)
+            .body(Body::from(r#"{"path":"/"}"#))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn api_limit_is_per_first_forwarded_client_and_sets_numeric_retry_after() {
+        let app = test_app().await;
+        for _ in 0..API_RATE_LIMIT {
+            let response = app
+                .clone()
+                .oneshot(pageview_request("198.51.100.24, 10.0.0.8"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let blocked = app
+            .clone()
+            .oneshot(pageview_request("198.51.100.24, 10.0.0.8"))
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = blocked.headers()[header::RETRY_AFTER]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!(retry_after >= 1);
+
+        let other_client = app
+            .oneshot(pageview_request("203.0.113.77, 10.0.0.8"))
+            .await
+            .unwrap();
+        assert_eq!(other_client.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn api_client_key_uses_first_forwarded_ip_and_safe_socket_fallback() {
+        let forwarded = HttpRequest::builder()
+            .header("x-forwarded-for", "198.51.100.24, 10.0.0.8")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(client_key(&forwarded), "forwarded:198.51.100.24");
+
+        let mut socket = HttpRequest::builder().body(Body::empty()).unwrap();
+        socket
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+        assert_eq!(client_key(&socket), "socket:127.0.0.1");
+
+        let malformed = HttpRequest::builder()
+            .header("x-forwarded-for", "not-an-ip")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(client_key(&malformed), "socket:unknown");
     }
 
     #[tokio::test]

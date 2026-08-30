@@ -13,6 +13,8 @@ describe('container build and runtime contract', () => {
   it('bakes ACR build identity into a non-root runtime image', async () => {
     const dockerfile = await readFile(resolve(root, 'Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/^ARG BUILD_SHA=dev$/m);
+    expect(dockerfile).toContain('FROM rust:1-slim AS backend');
+    expect(dockerfile).not.toMatch(/^FROM rust:\d+\.\d+/m);
     expect(dockerfile).toMatch(/^ENV BUILD_SHA=\$\{BUILD_SHA\}$/m);
     expect(dockerfile).toContain('USER nonroot:nonroot');
     expect(dockerfile).toContain('EXPOSE 8080');
