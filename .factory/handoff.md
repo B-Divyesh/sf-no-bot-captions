@@ -70,6 +70,11 @@ counter. It blocked unrelated users together and emitted a bare 429.
 - Repeated live V3-01 burst: one forwarded client received 120 HTTP 200 then
   HTTP 429 with `retry-after: 54`; a second forwarded client immediately
   received HTTP 200.
+- A final two-replica check found the same client had exactly 80 accepted
+  requests (40 per ready replica); later requests returned HTTP 429 with
+  `retry-after: 40`, while a different forwarded client received HTTP 200.
+  The 40-per-replica budget therefore preserves the 120-request ceiling at
+  the deployment's configured maximum of three replicas.
 - Live `verify-url.sh` passed in 661 ms with no console/page errors and all
   basic semantic checks.
 - `APP_URL=https://no-bot-captions.sociobot.in npx playwright test` passed:
