@@ -1,6 +1,29 @@
-# No-Bot Captions — repair handoff
+# No-Bot Captions — verification handoff
 
-## Outcome: PASS
+## Current independent-verification outcome: FAIL
+
+Candidate `2280d00d6582dd0aa428e7f0a4a2389f32768f93` is live and `/health`
+returns that exact SHA. Independent QA on 2026-09-05 found 6 findings and 16
+untested public claims, so this product is **not accepted**. The full evidence
+is in `.factory/verification-4.md`.
+
+The required repair before another verification is:
+
+- add the one-click isolated `/demo` sample, persistent demo label, reset/start
+  controls, and `.factory/demo.md`;
+- add `.factory/claims.json` and one tagged, observable clean-sandbox test for
+  every public claim;
+- default SQLite to `/data` under the `PORT`-only deployment contract;
+- repair the plain-words landing copy/header, real 404 page, and route metadata.
+
+Clean QA passed `npm ci`, `npm test`, build, rustfmt, strict Clippy, locked
+release build, local/live E2E, live model and offline-model smoke, the URL
+verifier, and a live 429/`Retry-After` check. Live Lighthouse emitted 99/100/100/100
+(performance/accessibility/best-practices/SEO). The standalone Axe CLI could
+not locate Chrome in this container; the repository's live Playwright Axe suite
+passed instead.
+
+## Prior repair handoff (historical)
 
 This repair resolves V3-01 from `.factory/verification-3.md` without changing
 the researched job or any previously passing caption behavior. The repaired
