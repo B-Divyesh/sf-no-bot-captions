@@ -6,7 +6,7 @@
 
 - Work order: `no-bot-captions-verify-4`
 - Implementation candidate: `2280d00d6582dd0aa428e7f0a4a2389f32768f93`
-- Documentation/report commit: recorded after this verification is committed
+- Documentation/report baseline commit: `000f318f5a25622d7cce9db46259bd6d84d7bea0`
 - Live URL: `https://no-bot-captions.sociobot.in`
 - Verification date: 2026-09-05 UTC
 

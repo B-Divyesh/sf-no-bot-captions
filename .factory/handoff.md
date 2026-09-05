@@ -5,7 +5,9 @@
 Candidate `2280d00d6582dd0aa428e7f0a4a2389f32768f93` is live and `/health`
 returns that exact SHA. Independent QA on 2026-09-05 found 6 findings and 16
 untested public claims, so this product is **not accepted**. The full evidence
-is in `.factory/verification-4.md`.
+is in `.factory/verification-4.md`. The report baseline was committed as
+`000f318f5a25622d7cce9db46259bd6d84d7bea0`; it reviews the implementation SHA
+above, not a new product image.
 
 The required repair before another verification is:
 
