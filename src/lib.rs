@@ -424,6 +424,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pageview_database_persists_after_a_process_reopens_it() {
+        let folder = tempdir().unwrap();
+        let database = format!(
+            "sqlite://{}?mode=rwc&vfs=unix-none",
+            folder.path().join("restart.sqlite").display()
+        );
+        let first_process = connect(&database).await.unwrap();
+        sqlx::query("INSERT INTO page_views(day, path, views) VALUES('2026-09-06', '/', 1)")
+            .execute(&first_process)
+            .await
+            .unwrap();
+        first_process.close().await;
+
+        let reopened_process = connect(&database).await.unwrap();
+        let views: i64 = sqlx::query_scalar(
+            "SELECT views FROM page_views WHERE day = '2026-09-06' AND path = '/'",
+        )
+        .fetch_one(&reopened_process)
+        .await
+        .unwrap();
+        assert_eq!(views, 1);
+    }
+
+    #[tokio::test]
     async fn unknown_page_has_a_real_not_found_response_and_recovery_link() {
         let response = test_app()
             .await

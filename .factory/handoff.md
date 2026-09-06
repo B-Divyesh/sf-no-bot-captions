@@ -69,7 +69,8 @@ APP_URL=http://127.0.0.1:8080 npm run test:offline-model
 Completed in this repair:
 
 - `npm ci` installed 118 packages with 0 audit vulnerabilities.
-- `npm test` passed 11 TypeScript tests and 9 Rust tests.
+- `npm test` passed 11 TypeScript tests and 10 Rust tests, including reopening
+  the page-count SQLite database after a simulated process restart.
 - `npm run build`, formatting, strict Clippy, and locked release build passed.
   The initial app bundle is 36.38 KB (11.79 KB gzip); CSS is 15.69 KB
   (4.33 KB gzip). The transcription model is deferred.
