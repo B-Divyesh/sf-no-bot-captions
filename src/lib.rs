@@ -17,7 +17,10 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteJournalMode, SqliteLockingMode, SqlitePoolOptions},
+    SqlitePool,
+};
 use tower_http::{
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
@@ -89,12 +92,17 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
         .parse::<sqlx::sqlite::SqliteConnectOptions>()?
         .create_if_missing(true)
         .foreign_keys(true)
+        // The fleet guarantees one replica for this SQLite process. Keeping
+        // its rollback journal in process memory avoids Azure Files journal
+        // sidecar lock conflicts while the database file itself stays durable.
+        .journal_mode(SqliteJournalMode::Memory)
+        .locking_mode(SqliteLockingMode::Exclusive)
         // Azure Files can briefly retain a SQLite schema lock while a rolling
         // deployment releases the prior process. Wait instead of rejecting a
         // healthy durable database during that hand-off.
         .busy_timeout(Duration::from_secs(30));
     let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(1)
         .connect_with(options)
         .await?;
     for attempt in 0..30 {
