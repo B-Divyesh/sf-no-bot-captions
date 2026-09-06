@@ -126,7 +126,7 @@ pub fn default_database_url(data_dir: &Path, fallback_dir: &Path) -> String {
     };
     format!(
         "sqlite://{}",
-        directory.join("no-bot-captions.sqlite").display()
+        directory.join("no-bot-captions-pageviews.sqlite").display()
     )
 }
 
@@ -401,14 +401,14 @@ mod tests {
             default_database_url(&durable, &fallback),
             format!(
                 "sqlite://{}",
-                durable.join("no-bot-captions.sqlite").display()
+                durable.join("no-bot-captions-pageviews.sqlite").display()
             )
         );
         assert_eq!(
             default_database_url(&folder.path().join("missing-data"), &fallback),
             format!(
                 "sqlite://{}",
-                fallback.join("no-bot-captions.sqlite").display()
+                fallback.join("no-bot-captions-pageviews.sqlite").display()
             )
         );
     }

@@ -85,7 +85,7 @@ APP_URL=http://127.0.0.1:8080 npm run test:offline-model
 ## Deploy
 
 The container starts with only `PORT` set, defaulting to `8080`. It uses
-`/data/no-bot-captions.sqlite` when the fleet mounts `/data`. Without that
+`/data/no-bot-captions-pageviews.sqlite` when the fleet mounts `/data`. Without that
 mount, it stores SQLite beside the executable for local development.
 
 ```bash
