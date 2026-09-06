@@ -88,16 +88,30 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let options = database_url
         .parse::<sqlx::sqlite::SqliteConnectOptions>()?
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        // Azure Files can briefly retain a SQLite schema lock while a rolling
+        // deployment releases the prior process. Wait instead of rejecting a
+        // healthy durable database during that hand-off.
+        .busy_timeout(Duration::from_secs(30));
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
         .await?;
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS page_views (day TEXT NOT NULL, path TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, path))",
-    )
-    .execute(&pool)
-    .await?;
+    for attempt in 0..30 {
+        match sqlx::query(
+            "CREATE TABLE IF NOT EXISTS page_views (day TEXT NOT NULL, path TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, path))",
+        )
+        .execute(&pool)
+        .await
+        {
+            Ok(_) => return Ok(pool),
+            Err(error) if error.to_string().contains("database is locked") && attempt < 29 => {
+                tracing::warn!(attempt = attempt + 1, "SQLite schema is busy; retrying startup");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
     Ok(pool)
 }
 
