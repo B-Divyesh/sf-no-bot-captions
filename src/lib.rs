@@ -123,9 +123,11 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
-/// Product state belongs on the durable `/data` mount when it is present. A
-/// local binary still starts without that mount by placing the database beside
-/// the executable instead of assuming a writable temporary directory.
+/// Product state belongs on the durable `/data` mount when it is present. The
+/// fleet enforces one replica, so the mounted Azure Files database uses
+/// SQLite's no-lock Unix VFS rather than unsupported share byte locks. A local
+/// binary still starts without that mount by placing the database beside the
+/// executable instead of assuming a writable temporary directory.
 pub fn default_database_url(data_dir: &Path, fallback_dir: &Path) -> String {
     let directory = if data_dir.is_dir() {
         data_dir
@@ -133,7 +135,7 @@ pub fn default_database_url(data_dir: &Path, fallback_dir: &Path) -> String {
         fallback_dir
     };
     format!(
-        "sqlite://{}",
+        "sqlite://{}?mode=rwc&vfs=unix-none",
         directory.join("no-bot-captions-pageviews.sqlite").display()
     )
 }
@@ -408,14 +410,14 @@ mod tests {
         assert_eq!(
             default_database_url(&durable, &fallback),
             format!(
-                "sqlite://{}",
+                "sqlite://{}?mode=rwc&vfs=unix-none",
                 durable.join("no-bot-captions-pageviews.sqlite").display()
             )
         );
         assert_eq!(
             default_database_url(&folder.path().join("missing-data"), &fallback),
             format!(
-                "sqlite://{}",
+                "sqlite://{}?mode=rwc&vfs=unix-none",
                 fallback.join("no-bot-captions-pageviews.sqlite").display()
             )
         );

@@ -87,6 +87,7 @@ APP_URL=http://127.0.0.1:8080 npm run test:offline-model
 The container starts with only `PORT` set, defaulting to `8080`. It uses
 `/data/no-bot-captions-pageviews.sqlite` when the fleet mounts `/data`. Without that
 mount, it stores SQLite beside the executable for local development.
+The one-replica deployment uses SQLite's no-lock VFS for the Azure Files mount.
 
 ```bash
 docker build -t no-bot-captions .
