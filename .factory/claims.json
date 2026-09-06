@@ -1,0 +1,128 @@
+[
+  {
+    "id": "demo-sample",
+    "claim": "The demo opens populated captions without sharing audio.",
+    "where": "Landing action, /demo, README",
+    "test": "npm run test:claims -- --grep @claim:demo-sample",
+    "sandbox": "Fresh browser context at /demo; observe three realistic captions and the persistent demo controls."
+  },
+  {
+    "id": "demo-reset",
+    "claim": "Reset demo restores the original sample captions.",
+    "where": "/demo, README",
+    "test": "npm run test:claims -- --grep @claim:demo-reset",
+    "sandbox": "Fresh /demo context; retry the uncertain line, reset, and observe the original uncertain sample again."
+  },
+  {
+    "id": "demo-isolation",
+    "claim": "Demo actions do not change real licenses or archives.",
+    "where": "/demo banner, README",
+    "test": "npm run test:claims -- --grep @claim:demo-isolation",
+    "sandbox": "Seed real localStorage keys, edit a demo caption, then prove only the demo: namespace changed and reset clears it."
+  },
+  {
+    "id": "no-account-demo",
+    "claim": "The sample needs no account.",
+    "where": "/demo, README",
+    "test": "npm run test:claims -- --grep @claim:no-account-demo",
+    "sandbox": "Fresh /demo context; assert the populated sample is usable with no visible account field."
+  },
+  {
+    "id": "no-bot-or-upload",
+    "claim": "The sample adds no meeting bot and sends no audio or captions to another origin.",
+    "where": "Landing privacy facts, privacy section, README",
+    "test": "npm run test:claims -- --grep @claim:no-bot-or-upload",
+    "sandbox": "Enter through /demo, start synthetic approved capture, record every request, and assert only the product origin occurs."
+  },
+  {
+    "id": "consent-before-audio",
+    "claim": "Capture starts only after consent and the browser picker.",
+    "where": "How it works, /privacy, README",
+    "test": "npm run test:claims -- --grep @claim:consent-before-audio",
+    "sandbox": "Enter from /demo, start for real, use a synthetic picker, and prove zero picker calls before both confirmations."
+  },
+  {
+    "id": "repair-window",
+    "claim": "The repair buffer holds at most 12 seconds and clears when capture stops.",
+    "where": "How it works, privacy section, /privacy, README",
+    "test": "npm run test:claims -- --grep @claim:repair-window",
+    "sandbox": "Enter from /demo, fill the repair buffer with synthetic audio, stop, and observe disabled replay plus an ended track."
+  },
+  {
+    "id": "replay-12-seconds",
+    "claim": "Replay plays the 12-second repair window on this device.",
+    "where": "/demo, console controls, README",
+    "test": "npm run test:claims -- --grep @claim:replay-12-seconds",
+    "sandbox": "Fresh /demo context; replay the seeded clip and observe its 12-second local playback status."
+  },
+  {
+    "id": "retry-uncertain",
+    "claim": "Try again replaces an uncertain sample line.",
+    "where": "/demo, console controls, README",
+    "test": "npm run test:claims -- --grep @claim:retry-uncertain",
+    "sandbox": "Fresh /demo context; retry the seeded uncertain line and observe corrected text with no uncertain marker."
+  },
+  {
+    "id": "edit-caption",
+    "claim": "Edit text saves a visible caption correction.",
+    "where": "/demo, console controls, README",
+    "test": "npm run test:claims -- --grep @claim:edit-caption",
+    "sandbox": "Fresh /demo context; edit and save the seeded uncertain line, then observe the new text."
+  },
+  {
+    "id": "text-export",
+    "claim": "The free tool exports caption text.",
+    "where": "Supporter section, README",
+    "test": "npm run test:claims -- --grep @claim:text-export",
+    "sandbox": "Fresh /demo context; export the realistic sample and inspect the downloaded transcript."
+  },
+  {
+    "id": "free-core",
+    "claim": "Live captions, replay, repair, and export stay free.",
+    "where": "Supporter section, /terms, README",
+    "test": "npm run test:claims -- --grep @claim:free-core",
+    "sandbox": "Fresh /demo context without a license; observe enabled replay, retry, edit, and export controls."
+  },
+  {
+    "id": "supporter-price",
+    "claim": "Supporter costs $29 once and adds a local session archive.",
+    "where": "Supporter section, /terms, README",
+    "test": "npm run test:claims -- --grep @claim:supporter-price",
+    "sandbox": "Fresh /demo context; observe the exact one-time price and archive offer without reading a real license."
+  },
+  {
+    "id": "daily-page-count",
+    "claim": "The backend records a daily aggregate page count without an account.",
+    "where": "/privacy, README",
+    "test": "npm run test:claims -- --grep @claim:daily-page-count",
+    "sandbox": "Fresh /demo context; submit an allowed page path and observe the aggregate endpoint record it."
+  },
+  {
+    "id": "page-count-rate-limit",
+    "claim": "The page-count endpoint returns 429 and Retry-After when a client uses its allowance.",
+    "where": "README",
+    "test": "npm run test:claims -- --grep @claim:page-count-rate-limit",
+    "sandbox": "Fresh /demo context; send a unique forwarded client beyond its 40-request local allowance and inspect the denial header."
+  },
+  {
+    "id": "offline-demo",
+    "claim": "The sample remains available offline after the first visit.",
+    "where": "/demo, README",
+    "test": "npm run test:claims -- --grep @claim:offline-demo",
+    "sandbox": "Dedicated fresh browser context; warm /demo, set the context offline, reload, and observe the populated sample."
+  },
+  {
+    "id": "local-caption-model",
+    "claim": "The local speech model processes approved shared audio in the browser.",
+    "where": "How it works, README",
+    "test": "npm run test:claims -- --grep @claim:local-caption-model",
+    "sandbox": "Enter through /demo, start for real, provide synthetic approved audio, and wait for successful local inference."
+  },
+  {
+    "id": "offline-caption-model",
+    "claim": "The cached local model captions after an offline reload.",
+    "where": "README, /privacy",
+    "test": "npm run test:claims -- --grep @claim:offline-caption-model",
+    "sandbox": "Dedicated fresh context; warm the real model after entering through /demo, go offline, reload, and complete inference again."
+  }
+]

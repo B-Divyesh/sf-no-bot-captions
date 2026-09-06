@@ -110,6 +110,11 @@ text artifacts, seams, unintended symbols/brands, palette consistency, and
 capability accuracy. It contains no people or text, its crisp shield and cable
 read cleanly, and its full prompt and review are recorded in the adjacent JSON
 sidecar. Shipped WebP exports are 75 KB at 1200×800 and 36 KB at 720×480.
+`public/assets/no-bot-captions-social.png` is a 1200×630, 256-colour crop of
+that accepted original and is used only for social metadata. The 180×180 Apple
+touch icon is another crop of the same accepted image. Both derived files keep
+the original asset's provenance and were reviewed for the same no-text,
+no-brand, no-person constraints on 2026-09-06.
 
 ## Why this fits the product
 

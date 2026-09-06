@@ -18,5 +18,6 @@ describe('container build and runtime contract', () => {
     expect(dockerfile).toMatch(/^ENV BUILD_SHA=\$\{BUILD_SHA\}$/m);
     expect(dockerfile).toContain('USER nonroot:nonroot');
     expect(dockerfile).toContain('EXPOSE 8080');
+    expect(dockerfile).toContain('COPY --chown=65532:65532 --from=backend /data /data');
   });
 });

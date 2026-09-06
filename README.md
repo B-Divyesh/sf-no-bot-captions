@@ -1,102 +1,107 @@
 # No-Bot Captions
 
-No-Bot Captions is a private live-caption companion for people who cannot add a
-recording bot to a Google Meet call. The user explicitly shares tab or system
-audio; a compact Whisper model runs in the browser; large rolling captions show
-uncertain fragments with replay, retry, and manual correction controls. No
-meeting participant is added, and meeting audio is not uploaded.
+Get private captions without adding a meeting bot. It is for Google Meet users
+who need live captions but cannot invite a recording bot.
 
-The free mode includes live captions, a 12-second in-memory repair buffer,
-manual correction, and text export. A $29 one-time Supporter license adds a
-local session archive and helps fund packaged offline models. Billing uses only
-the Sociobot hosted checkout and verification API.
+Choose meeting audio to open the browser picker. Or open `/demo` to try
+realistic sample captions and repair an uncertain line without sharing audio.
 
-## Browser and privacy model
+- No meeting bot joins the call.
+- Meeting audio and captions stay in the browser.
+- The free tool includes captions, replay, retry, editing, and text export.
+- Supporter costs $29 once and adds a local session archive.
 
-Desktop Chromium is required because it is currently the dependable browser
-surface for user-approved tab/system audio. For Google Meet, choose the Meet
-tab and enable **Share tab audio** in the browser picker. Firefox and Safari do
-not currently expose system audio to web apps; the product reports that
-limitation without requesting microphone access.
+## Use it
 
-- Capture starts only after a two-point consent check and the browser's own
-  picker.
-- PCM samples remain in browser memory. The last 12 seconds are retained for
-  repair and discarded on stop/reload.
-- The 42 MB quantized `whisper-tiny.en` model is fetched from the same origin,
-  cached in the browser, and executed with Transformers.js/ONNX WebAssembly.
-- The backend receives no meeting audio or transcript. It stores only daily
-  aggregate page counts by one of `/`, `/privacy`, or `/terms`. A temporary,
-  per-network-address in-memory limit protects that endpoint for one minute;
-  addresses are never written to SQLite.
-- Supporter archives and license state use localStorage on the user's device.
+Use desktop Chromium for meeting audio. Choose the Meet tab and turn on **Share
+tab audio**. Confirm consent before the picker opens.
+
+The local speech model loads when you first start. Browser cache keeps the
+model available for offline captioning after that first download. The repair
+buffer keeps at most 12 seconds of audio in memory. Stopping capture clears it.
+
+## Demo
+
+Open `/demo` or choose **Try it with sample data** on the landing page. The
+demo begins with three realistic meeting captions and one uncertain line. Use
+**Replay 12 s**, **Try again**, or **Edit text** to inspect the repair loop.
+
+Demo state uses only the `demo:no-bot-captions:state` localStorage key. It never
+reads licenses or archives. **Reset demo** clears that key. **Start for real**
+also clears it before returning to the live caption screen. See
+`.factory/demo.md` for the sandbox contract.
+
+## Privacy and paid support
+
+The backend stores a daily aggregate count by page path. It never stores
+meeting audio, captions, accounts, or IP-address fields. A one-minute
+in-memory rate limit uses a network address only while it protects the count.
+
+Supporter is a $29 one-time purchase. It saves completed sessions in local
+browser storage on licensed devices. Sociobot and Dodo handle checkout,
+license checks, refunds, and merchant-of-record duties. Core captioning and
+export remain free. Read `/privacy` and `/terms` before purchasing.
 
 ## Develop
 
-Requirements: Node 22+, current stable Rust, and a Chromium browser.
+Requirements: Node 22+, current stable Rust, and Chromium.
 
 ```bash
 npm ci
-npm run model:download   # downloads the pinned, redistributable local model
+npm run model:download
 npm run dev
 ```
 
-Vite serves the frontend at `http://localhost:5173`. To exercise the complete
-same-origin production shape:
+For the production shape, build the frontend and serve it from Rust:
 
 ```bash
-npm run build            # reproducible frontend output -> dist/
+npm run build
 FRONTEND_DIR=dist cargo run
 ```
 
-The model download is intentionally separate from `npm run build` so ordinary
-frontend builds stay quick. The container build downloads the model at its
-pinned Git revision and copies it into `dist/models`.
-
 ## Verify
 
+Run these from a clean checkout after `npm ci` and `npm run model:download`:
+
 ```bash
-npm test                 # Vitest utility tests + Rust route tests
+npm test
 npm run build
-npm run test:e2e         # desktop + 390px-class mobile, including axe checks
+npm run test:e2e
+npm run test:claims
 cargo fmt --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo build --release --locked
 ```
 
-The browser suite starts the production Rust/Vite shape itself. For real model
-and offline-reload coverage, first run `npm run model:download && npm run build`,
-serve it with `FRONTEND_DIR=dist cargo run`, then run `npm run test:model` and
-`npm run test:offline-model` with `APP_URL` set to that server.
+The claim manifest at `.factory/claims.json` lists the exact tagged sandbox
+command for every public claim. To exercise real online and offline model
+inference, serve the production shape above, then run:
 
-Keyboard shortcuts while the console is active: Space pauses/resumes capture,
-R replays the rolling buffer, and T retries the latest uncertain line. All
-functions are also exposed as labeled buttons.
+```bash
+APP_URL=http://127.0.0.1:8080 npm run test:model
+APP_URL=http://127.0.0.1:8080 npm run test:offline-model
+```
 
 ## Deploy
 
-Deployment is a single non-root container on `PORT` (default `8080`):
+The container starts with only `PORT` set, defaulting to `8080`. It uses
+`/data/no-bot-captions.sqlite` when the fleet mounts `/data`. Without that
+mount, it stores SQLite beside the executable for local development.
 
 ```bash
 docker build -t no-bot-captions .
-docker run --read-only --tmpfs /tmp -p 8080:8080 no-bot-captions
+docker run --read-only --tmpfs /tmp -v no-bot-captions-data:/data -p 8080:8080 no-bot-captions
 ```
 
-Configuration is environment-only:
-
-- `PORT` — HTTP port, default `8080`
-- `DATABASE_URL` — SQLite URL, default `sqlite:///tmp/no-bot-captions.sqlite`
-- `FRONTEND_DIR` — built client directory, default `dist`
-- `BUILD_SHA` — returned by `/health`
-
-The backend has structured JSON logs, graceful shutdown, strict response
-headers, a privacy-preserving per-client page-count rate limit, and `/health`.
-A basic load smoke can be run with `oha -n 1000 -c 20 http://localhost:8080/health`
-(or equivalent); the endpoint is read-only and does not touch SQLite.
+Optional environment overrides are `PORT`, `DATABASE_URL`, `FRONTEND_DIR`, and
+`BUILD_SHA`. `/health` returns the build SHA. `POST /api/pageview` is limited
+per client and replies with `429` and `Retry-After` when its allowance is used.
 
 ## Assets and licenses
 
-The original hero image and its exact generation prompt/review live in
-`assets/src/`; the shipped WebP variants are under `public/assets/`. Full visual
-tokens and provenance are in `.factory/design.md`. Departure Mono and Atkinson
-Hyperlegible Next are self-hosted under the SIL Open Font License. OpenAI
-Whisper code and weights are MIT licensed. License copies are in
-`assets/licenses/`. Application code is MIT licensed; see `LICENSE`.
+The original generated hero image and its prompt live in `assets/src/`. The
+social preview and Apple touch icon are crops derived from that same product
+art. The visual thesis and provenance are in `.factory/design.md`. Departure
+Mono and Atkinson Hyperlegible Next are self-hosted under the SIL Open Font
+License. Whisper code and weights are MIT licensed. Application code is MIT
+licensed; see `LICENSE`.

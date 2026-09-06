@@ -9,10 +9,10 @@ use std::{
 use axum::{
     body::Body,
     extract::{ConnectInfo, Request, State},
-    http::{header, HeaderName, HeaderValue, Request as HttpRequest},
+    http::{header, HeaderName, HeaderValue, Request as HttpRequest, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, get_service, post},
     Json, Router,
 };
 use chrono::Utc;
@@ -101,6 +101,21 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// Product state belongs on the durable `/data` mount when it is present. A
+/// local binary still starts without that mount by placing the database beside
+/// the executable instead of assuming a writable temporary directory.
+pub fn default_database_url(data_dir: &Path, fallback_dir: &Path) -> String {
+    let directory = if data_dir.is_dir() {
+        data_dir
+    } else {
+        fallback_dir
+    };
+    format!(
+        "sqlite://{}",
+        directory.join("no-bot-captions.sqlite").display()
+    )
+}
+
 pub fn router(
     pool: SqlitePool,
     frontend_dir: impl AsRef<Path>,
@@ -108,6 +123,7 @@ pub fn router(
 ) -> Router {
     let frontend = frontend_dir.as_ref().to_path_buf();
     let index = frontend.join("index.html");
+    let not_found = frontend.join("404.html");
     let state = AppState {
         pool,
         build_sha: build_sha.into(),
@@ -128,11 +144,17 @@ pub fn router(
     Router::new()
         .route("/health", get(health))
         .nest("/api", api)
+        .route("/", get_service(ServeFile::new(index.clone())))
+        .route("/demo", get_service(ServeFile::new(index.clone())))
+        .route("/privacy", get_service(ServeFile::new(index.clone())))
+        .route("/terms", get_service(ServeFile::new(index)))
+        .route("/404", get_service(ServeFile::new(not_found.clone())))
         .fallback_service(
             ServeDir::new(frontend)
                 .append_index_html_on_directories(true)
-                .fallback(ServeFile::new(index)),
+                .fallback(ServeFile::new(not_found)),
         )
+        .layer(middleware::from_fn(not_found_status))
         .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -149,7 +171,7 @@ async fn record_pageview(
     State(state): State<AppState>,
     Json(input): Json<PageView>,
 ) -> (axum::http::StatusCode, Json<Recorded>) {
-    if !matches!(input.path.as_str(), "/" | "/privacy" | "/terms") {
+    if !matches!(input.path.as_str(), "/" | "/demo" | "/privacy" | "/terms") {
         return (
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             Json(Recorded { recorded: false }),
@@ -176,6 +198,21 @@ async fn record_pageview(
             )
         }
     }
+}
+
+async fn not_found_status(request: HttpRequest<Body>, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    let mut response = next.run(request).await;
+    let is_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"));
+    let known_page = matches!(path.as_str(), "/" | "/demo" | "/privacy" | "/terms");
+    if path == "/404" || (!known_page && is_html) {
+        *response.status_mut() = StatusCode::NOT_FOUND;
+    }
+    response
 }
 
 async fn api_rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -308,6 +345,11 @@ mod tests {
             "<!doctype html><title>test</title>",
         )
         .unwrap();
+        std::fs::write(
+            static_dir.path().join("404.html"),
+            "<!doctype html><title>Page not found — No-Bot Captions</title><main><h1>This page was not found</h1><a href=\"/\">Go to captions</a></main>",
+        )
+        .unwrap();
         std::fs::create_dir_all(static_dir.path().join("assets")).unwrap();
         std::fs::create_dir_all(static_dir.path().join("wasm")).unwrap();
         std::fs::write(static_dir.path().join("assets/app-a1b2c3d4.js"), "ok").unwrap();
@@ -332,6 +374,66 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["build_sha"], "test-sha");
+    }
+
+    #[test]
+    fn durable_database_default_prefers_an_available_data_mount() {
+        let folder = tempdir().unwrap();
+        let durable = folder.path().join("data");
+        let fallback = folder.path().join("app");
+        std::fs::create_dir_all(&durable).unwrap();
+        std::fs::create_dir_all(&fallback).unwrap();
+        assert_eq!(
+            default_database_url(&durable, &fallback),
+            format!(
+                "sqlite://{}",
+                durable.join("no-bot-captions.sqlite").display()
+            )
+        );
+        assert_eq!(
+            default_database_url(&folder.path().join("missing-data"), &fallback),
+            format!(
+                "sqlite://{}",
+                fallback.join("no-bot-captions.sqlite").display()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_page_has_a_real_not_found_response_and_recovery_link() {
+        let response = test_app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .uri("/not-a-real-route")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = String::from_utf8(
+            response
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(body.contains("This page was not found"));
+        assert!(body.contains("Go to captions"));
+    }
+
+    #[tokio::test]
+    async fn named_spa_pages_remain_available_without_a_not_found_status() {
+        let response = test_app()
+            .await
+            .oneshot(Request::builder().uri("/demo").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

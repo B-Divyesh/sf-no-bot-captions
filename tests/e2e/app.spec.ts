@@ -72,6 +72,25 @@ test('legal pages have one heading and main landmark', async ({ page }) => {
   }
 });
 
+test('demo, metadata, and the not-found route give visitors real destinations', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://no-bot-captions.sociobot.in/');
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', /no-bot-captions-social\.png$/);
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/apple-touch-icon.png');
+  await page.goto('/demo');
+  await expect(page).toHaveTitle('Demo — No-Bot Captions');
+  await expect(page.getByLabel('Demo mode')).toBeVisible();
+  const demoAxe = await new AxeBuilder({ page }).analyze();
+  expect(demoAxe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+  const response = await page.goto('/not-a-real-route');
+  expect(response?.status()).toBe(404);
+  await expect(page).toHaveTitle('Page not found — No-Bot Captions');
+  await expect(page.getByRole('heading', { name: 'This page was not found' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go to captions' })).toHaveAttribute('href', '/');
+  const notFoundAxe = await new AxeBuilder({ page }).analyze();
+  expect(notFoundAxe.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+});
+
 test('baseline browsing stays on the product origin', async ({ page }) => {
   const origins = new Set<string>();
   page.on('request', (request) => origins.add(new URL(request.url()).origin));

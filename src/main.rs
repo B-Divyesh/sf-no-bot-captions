@@ -1,6 +1,10 @@
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{
+    env,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
-use no_bot_captions::{connect, router};
+use no_bot_captions::{connect, default_database_url, router};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -22,9 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_deref()
         .and_then(|value| value.parse().ok())
         .unwrap_or(8080);
+    let binary_directory = env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .or_else(|| env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
     let database_url = database_env
         .clone()
-        .unwrap_or_else(|| "sqlite:///tmp/no-bot-captions.sqlite".to_string());
+        .unwrap_or_else(|| default_database_url(Path::new("/data"), &binary_directory));
     let frontend = PathBuf::from(frontend_env.clone().unwrap_or_else(|| "dist".to_string()));
     let build_sha = build_sha_env
         .clone()

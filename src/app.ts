@@ -20,6 +20,20 @@ type ActiveReplay = {
   epoch: number;
 };
 
+type DemoState = { captions: Array<Pick<Caption, 'text' | 'uncertain' | 'reason'>> };
+
+const DEMO_STORAGE_KEY = 'demo:no-bot-captions:state';
+
+const SAMPLE_CAPTIONS: DemoState['captions'] = [
+  { text: 'We can move the customer review to Thursday afternoon.', uncertain: false },
+  {
+    text: 'Please confirm whether the renewal includes the data export.',
+    uncertain: true,
+    reason: 'A short phrase was unclear in the sample audio.',
+  },
+  { text: 'I will send the revised agenda after this call.', uncertain: false },
+];
+
 class LocalTranscriber {
   private worker?: Worker;
   private pending = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void }>();
@@ -85,11 +99,18 @@ export class CaptionApp {
   private license: LicenseState = { unlocked: false, notice: '' };
   private root: HTMLElement;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, private readonly demo = false) {
     this.root = root;
   }
 
   async mount(): Promise<void> {
+    document.body.classList.toggle('demo-mode', this.demo);
+    if (this.demo) {
+      this.root.innerHTML = this.template();
+      this.bind();
+      this.loadDemo();
+      return;
+    }
     acceptLicenseFromUrl();
     this.license = localLicenseState();
     this.root.innerHTML = this.template();
@@ -109,22 +130,25 @@ export class CaptionApp {
       <header class="site-header">
         <a class="wordmark" href="/" aria-label="No-Bot Captions home"><span aria-hidden="true" class="wordmark-mark">▰</span> NO-BOT / CAPTIONS</a>
         <nav aria-label="Primary navigation">
+          <a href="/demo">Demo</a>
           <a href="#how">How it works</a>
-          <a href="#supporter">Supporter</a>
+          <a href="/privacy">Privacy</a>
         </nav>
       </header>
+      ${this.demo ? `<aside class="demo-banner" aria-label="Demo mode"><strong>Demo — sample data, nothing is saved to your real captions.</strong><span><button class="demo-action" id="reset-demo" type="button">Reset demo</button><a class="demo-action" id="start-real" href="/">Start for real</a></span></aside>` : ''}
       <main id="main">
         <section class="hero" aria-labelledby="page-title">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="signal-dot" aria-hidden="true"></span> Local signal / zero attendees added</p>
-            <h1 id="page-title">Hear the room.<br><span>Keep the bot out.</span></h1>
-            <p class="lede">Large live captions from audio you choose, processed on this device. If the model misses a phrase, replay the last 12 seconds or try it again before the conversation moves on.</p>
+            <p class="eyebrow"><span class="signal-dot" aria-hidden="true"></span> Private live captions</p>
+            <h1 id="page-title">Get captions without adding a meeting bot</h1>
+            <p class="lede">For Google Meet users who need captions but cannot invite a recording bot.</p>
             <div class="hero-actions">
               <button class="button primary" id="hero-start" type="button">Choose meeting audio</button>
-              <a class="text-link" href="#how">Check the signal path <span aria-hidden="true">↓</span></a>
+              <a class="button secondary" href="/demo">Try it with sample data</a>
             </div>
+            <p class="action-help">Choose audio opens the browser picker. The sample shows captions and repair controls.</p>
             <ul class="trust-list" aria-label="Privacy summary">
-              <li>No meeting bot</li><li>No account</li><li>No audio upload</li>
+              <li>No meeting bot</li><li>Audio stays on this device</li><li>Free captions; $29 archive option</li>
             </ul>
           </div>
           <figure class="hero-art">
@@ -132,12 +156,12 @@ export class CaptionApp {
               <source media="(max-width: 700px)" srcset="/assets/private-signal-console-720.webp" />
               <img src="/assets/private-signal-console.webp" width="1200" height="800" alt="Pixel-art laptop turning an audio waveform into caption blocks inside a protective shield" fetchpriority="high" decoding="async" />
             </picture>
-            <figcaption>THE SIGNAL STAYS ON THIS DEVICE</figcaption>
+            <figcaption>Audio becomes captions on this device.</figcaption>
           </figure>
         </section>
 
         <section class="console-section" id="captions" aria-labelledby="console-title">
-          <div class="section-kicker"><span>01</span> Live console</div>
+          <div class="section-kicker">Live captions</div>
           <div class="console" data-state="idle">
             <div class="console-bar">
               <div class="capture-state" role="status" aria-live="polite">
@@ -146,12 +170,12 @@ export class CaptionApp {
               </div>
               <div class="telemetry" aria-label="Capture telemetry"><span id="source-label">No source</span><time id="elapsed">00:00</time></div>
             </div>
-            <div class="engine-status" id="engine-status" role="status" aria-live="polite">The 42 MB English model loads only when you start. It is cached on this device.</div>
+            <div class="engine-status" id="engine-status" role="status" aria-live="polite">Choose meeting audio to load the English speech model on this device.</div>
             <div class="level-row" aria-hidden="true"><span>IN</span><div class="meter"><i id="level-meter"></i></div><span>LOCAL</span></div>
             <div class="caption-stage">
               <h2 id="console-title" class="sr-only">Live captions</h2>
               <ol class="caption-list" id="caption-list" aria-live="polite" aria-relevant="additions text">
-                <li class="caption-empty" id="caption-empty"><span aria-hidden="true">▥</span><strong>Your captions will appear here.</strong><small>Choose a Chrome tab, window, or screen with audio. For a Meet tab, turn on “Share tab audio”.</small></li>
+                <li class="caption-empty" id="caption-empty"><span aria-hidden="true">▥</span><strong>Your captions will appear here.</strong><small>Choose a meeting tab with audio. Turn on “Share tab audio” in the browser picker.</small></li>
               </ol>
             </div>
             <div class="console-controls">
@@ -166,20 +190,31 @@ export class CaptionApp {
         </section>
 
         <section class="how-section" id="how" aria-labelledby="how-title">
-          <div class="section-kicker"><span>02</span> Signal path</div>
-          <h2 id="how-title">Nothing joins the call.</h2>
+          <div class="section-kicker">How it works</div>
+          <h2 id="how-title">How captions work</h2>
           <ol class="signal-path">
-            <li><span>01</span><div><h3>You choose the sound</h3><p>Your browser’s system picker controls the tab, window, or screen. Capture never starts itself.</p></div></li>
-            <li><span>02</span><div><h3>Your device makes the words</h3><p>A compact Whisper model runs in browser memory. Audio samples are not posted to this service or a third party.</p></div></li>
-            <li><span>03</span><div><h3>Doubt stays visible</h3><p>Short or dropped fragments are marked, with the last 12 seconds held only in memory for replay and retry.</p></div></li>
+            <li><span>01</span><div><h3>Choose meeting audio</h3><p>The browser picker lets you choose a tab, window, or screen. Capture never starts on its own.</p></div></li>
+            <li><span>02</span><div><h3>Read captions here</h3><p>The speech model runs in this browser. Meeting audio and captions are not sent to this service.</p></div></li>
+            <li><span>03</span><div><h3>Repair uncertain words</h3><p>Unclear lines include replay, retry, and edit controls. The replay buffer holds at most 12 seconds.</p></div></li>
           </ol>
-          <aside class="browser-note"><strong>Works best in desktop Chromium.</strong> System-audio sharing is a browser capability. Firefox and Safari currently do not expose meeting audio to web apps; the console will say so before anything starts.</aside>
+          <aside class="browser-note"><strong>Use desktop Chromium for meeting audio.</strong> The browser picker tells you when meeting audio is unavailable.</aside>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="privacy-title">
+          <div class="section-kicker">Privacy</div>
+          <h2 id="privacy-title">What this app does not do</h2>
+          <ul class="privacy-list">
+            <li>It does not join your meeting.</li>
+            <li>It does not upload meeting audio or captions.</li>
+            <li>It does not start capture before the browser picker.</li>
+          </ul>
+          <p>Stopping capture clears the temporary replay audio from this browser.</p>
         </section>
 
         <section class="supporter-section" id="supporter" aria-labelledby="supporter-title">
-          <div class="section-kicker"><span>03</span> Optional unlock</div>
+          <div class="section-kicker">Supporter</div>
           <div class="supporter-grid">
-            <div><p class="eyebrow">ONE-TIME / $29</p><h2 id="supporter-title">Keep the core free. Keep a local archive.</h2><p>Supporter unlocks named session archives on this device and future packaged offline model updates. Live captions, replay, repair, and text export stay free.</p></div>
+            <div><p class="eyebrow">ONE TIME / $29</p><h2 id="supporter-title">Supporter adds a local session archive</h2><p>Supporter saves completed caption sessions on this device. Live captions, replay, repair, and text export stay free.</p></div>
             <div class="license-panel">
               <a class="button primary" id="buy-link" href="${checkoutUrl}">Buy Supporter — $29</a>
               <form id="license-form">
@@ -187,18 +222,18 @@ export class CaptionApp {
                 <div class="inline-form"><input id="license-token" name="license" autocomplete="off" spellcheck="false" /><button class="button secondary" type="submit">Restore</button></div>
               </form>
               <p class="license-status" id="license-status" role="status" aria-live="polite"></p>
-              <p class="legal-note">One-time purchase. Sociobot/Dodo is merchant of record and handles refunds. <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+              <p class="legal-note">One-time purchase. Sociobot/Dodo handles payment and refunds. <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
             </div>
-          </div>
+          </div>${this.demo ? '<p class="demo-supporter-note">The sample keeps your real Supporter license and archive separate.</p>' : ''}
           <div class="archive" id="archive" hidden><h3>Local session archive</h3><ul id="archive-list"></ul></div>
         </section>
       </main>
-      <footer><p>No-Bot Captions is built for consent, not surveillance.</p><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="https://github.com/B-Divyesh/sf-no-bot-captions">Source</a></nav><small>Original generated pixel artwork; provenance is documented in the project.</small></footer>
+      <footer><p>Private captions for Google Meet without a recording bot.</p><nav aria-label="Legal"><a href="/demo">Demo</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav><small>Built by Param Factory · v1.0.0 · Original generated artwork</small></footer>
 
       <dialog id="consent-dialog" aria-labelledby="consent-title">
         <form method="dialog" class="consent-card">
           <button class="dialog-close" value="cancel" aria-label="Close consent dialog">×</button>
-          <p class="eyebrow">Before capture</p><h2 id="consent-title">The room should know.</h2>
+          <p class="eyebrow">Before capture</p><h2 id="consent-title">Confirm consent before capture</h2>
           <p>Tell everyone captions are running. Your browser will show a picker next; select the meeting tab and enable its audio.</p>
           <label class="check-row"><input id="consent-permission" type="checkbox" /> <span>I have everyone’s permission to caption this audio.</span></label>
           <label class="check-row"><input id="consent-local" type="checkbox" /> <span>I understand the selected audio is held temporarily in this browser.</span></label>
@@ -211,6 +246,10 @@ export class CaptionApp {
   private bind(): void {
     const dialog = this.byId<HTMLDialogElement>('consent-dialog');
     const open = () => {
+      if (this.demo) {
+        this.startForReal();
+        return;
+      }
       if (this.running || this.captureStarting) return;
       this.byId('consent-error').textContent = '';
       this.byId<HTMLInputElement>('consent-permission').checked = false;
@@ -228,7 +267,18 @@ export class CaptionApp {
     this.byId('pause-button').addEventListener('click', () => this.togglePause());
     this.byId('replay-button').addEventListener('click', () => void this.play(this.ring.last()));
     this.byId('export-button').addEventListener('click', () => this.exportText());
-    this.byId<HTMLFormElement>('license-form').addEventListener('submit', (event) => void this.restoreLicense(event));
+    if (this.demo) {
+      this.byId<HTMLAnchorElement>('buy-link').href = '/';
+      this.byId<HTMLAnchorElement>('buy-link').textContent = 'Start for real to buy Supporter';
+      this.byId<HTMLFormElement>('license-form').hidden = true;
+      this.byId('reset-demo').addEventListener('click', () => this.resetDemo());
+      this.byId<HTMLAnchorElement>('start-real').addEventListener('click', (event) => {
+        event.preventDefault();
+        this.startForReal();
+      });
+    } else {
+      this.byId<HTMLFormElement>('license-form').addEventListener('submit', (event) => void this.restoreLicense(event));
+    }
     document.addEventListener('keydown', (event) => {
       const target = event.target as HTMLElement;
       if (/INPUT|TEXTAREA|SELECT/.test(target.tagName) || target.isContentEditable || dialog.open || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -239,6 +289,51 @@ export class CaptionApp {
         if (latest) void this.retry(latest.id);
       }
     });
+  }
+
+  private loadDemo(): void {
+    const stored = this.readDemoState();
+    const sample = stored?.captions?.length ? stored.captions : SAMPLE_CAPTIONS;
+    this.captions = [];
+    this.clips.clear();
+    this.ring.clear();
+    this.byId('caption-list').innerHTML = '';
+    for (const item of sample) {
+      const caption = this.addCaption(item.text, item.uncertain ? item.reason ?? 'A short phrase was unclear in the sample audio.' : undefined);
+      if (caption.uncertain) this.clips.set(caption.id, new Float32Array(REPAIR_WINDOW));
+    }
+    this.ring.push(new Float32Array(REPAIR_WINDOW));
+    this.byId<HTMLButtonElement>('replay-button').disabled = false;
+    this.byId<HTMLButtonElement>('console-start').hidden = true;
+    this.byId<HTMLButtonElement>('hero-start').textContent = 'Start for real to choose audio';
+    this.setEngineStatus('Sample captions are ready. Replay, retry, or edit the uncertain line.');
+  }
+
+  private readDemoState(): DemoState | null {
+    try {
+      const value = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY) ?? '') as DemoState;
+      if (!Array.isArray(value.captions)) return null;
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  private persistDemoState(): void {
+    if (!this.demo) return;
+    const captions = this.captions.map(({ text, uncertain, reason }) => ({ text, uncertain, reason }));
+    localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({ captions } satisfies DemoState));
+  }
+
+  private resetDemo(): void {
+    localStorage.removeItem(DEMO_STORAGE_KEY);
+    this.loadDemo();
+    this.setEngineStatus('Sample reset. Replay, retry, or edit the uncertain line.');
+  }
+
+  private startForReal(): void {
+    localStorage.removeItem(DEMO_STORAGE_KEY);
+    window.location.assign('/');
   }
 
   private async confirmCapture(dialog: HTMLDialogElement): Promise<void> {
@@ -320,7 +415,7 @@ export class CaptionApp {
   private addCaption(text: string, reason?: string): Caption {
     const caption: Caption = { id: crypto.randomUUID(), text, uncertain: Boolean(reason), reason, createdAt: new Date() };
     this.captions.push(caption);
-    this.byId('caption-empty')?.remove();
+    document.getElementById('caption-empty')?.remove();
     this.byId<HTMLButtonElement>('export-button').disabled = false;
     this.renderCaption(caption);
     return caption;
@@ -367,6 +462,15 @@ export class CaptionApp {
     const caption = this.captions.find((candidate) => candidate.id === id);
     const clip = this.clips.get(id);
     if (!caption || !clip || this.busy) return;
+    if (this.demo) {
+      caption.text = 'Please confirm that the renewal includes the data export.';
+      caption.uncertain = false;
+      caption.reason = undefined;
+      this.replaceCaption(caption);
+      this.persistDemoState();
+      this.setEngineStatus('Sample recovered. The repaired line is now in the sample transcript.');
+      return;
+    }
     this.busy = true;
     this.setEngineStatus('Trying that 12-second segment again…');
     try {
@@ -409,6 +513,7 @@ export class CaptionApp {
       if (error) { validation.textContent = error; input.focus(); return; }
       caption.text = value; caption.uncertain = false; caption.reason = undefined;
       this.replaceCaption(caption);
+      this.persistDemoState();
     }), this.actionButton('Cancel', () => this.replaceCaption(caption)));
     item.append(label, input, validation, actions);
     input.focus();
