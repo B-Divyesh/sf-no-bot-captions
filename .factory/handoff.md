@@ -1,15 +1,20 @@
-# No-Bot Captions — repair handoff
+# No-Bot Captions — verification handoff
 
 ## Outcome
 
-The repair is live at `https://no-bot-captions.sociobot.in`.
+The repair is live at `https://no-bot-captions.sociobot.in`, but independent
+verification 5 is **FAIL — 2 findings; 4 untested claims**. See
+`.factory/verification-5.md`.
 
 - **Implementation SHA:** `1aa7a327afb3c8c4b24125b838ecea8fbb8ad9cc`
-- **Deployed revision:** `sf-no-bot-captions--0000015` (healthy, 100% traffic)
-- **Live health:** `GET /health` returns that implementation SHA.
-- **Documentation:** this handoff is a later report-only commit; it does not
-  change the deployed image. Its commit SHA is recorded in `git log` separately
-  from the implementation SHA above.
+- **Live build/documentation SHA before this report:**
+  `01c78ae68a1ca6b79971e9a68a969aeb5be93b00`
+- **Deployed revision:** `sf-no-bot-captions--0000016` (healthy, one replica,
+  100% traffic)
+- **Live health:** `GET /health` returns the live build/documentation SHA.
+- The later live commit changes only this handoff and a test-only Rust
+  regression relative to the implementation SHA. Clean-built browser assets
+  match live byte for byte.
 
 The job is **private live captions from meeting audio without adding a recording
 bot**. It is for **Google Meet users who need captions but cannot invite a
@@ -109,7 +114,7 @@ Completed in this repair:
 | Finding | Result |
 | --- | --- |
 | No isolated demo sandbox | Fixed with `/demo`, persistent label, reset, real start, separate namespace, and realistic sample. |
-| Sixteen public claims lacked a manifest/tests | Fixed with 18 claims and clean sandbox tests; all passed live. |
+| Sixteen public claims lacked a manifest/tests | A manifest and 18 commands now exist and all pass live, but verification 5 found four incomplete assertions. |
 | SQLite defaulted to `/tmp` | Fixed to `/data` with safe local fallback and a one-replica Azure Files configuration. |
 | Plain-words/header gaps | Fixed; the landing headline names the job, header includes Demo/Privacy, and the copy audit is checked in. |
 | No real 404 | Fixed with actual HTTP 404 document and recovery links. |
@@ -132,7 +137,25 @@ It deploys the product-owned `sf-no-bot-captions` container only. The runtime
 starts with `PORT` alone; `/health` reports the build SHA. Do not scale beyond
 one replica while the product uses its local SQLite database.
 
-## Known gaps
+## Independent verification 5
 
-None. The $29 one-time Supporter checkout remains an existing live offer; the
-free caption, repair, replay, and text-export core remains usable without it.
+The verifier used fresh desktop and phone contexts, ran all 18 claim commands
+individually against production (36 browser executions), ran local and live
+E2E, live and offline model inference, clean build/unit/Rust gates, URL checks,
+Axe, route/link/metadata checks, backend validation and rate limiting, a local
+restart persistence check, and mobile Lighthouse.
+
+Current results:
+
+- Lighthouse: 99 performance, 100 accessibility, 100 best practices, 100 SEO.
+- Live limiting: 40 allowed, then 429 with `Retry-After: 60`; a second client
+  remained allowed.
+- Demo sample, reset, exit, and real-data isolation behave correctly.
+- Four claim commands are incomplete for the full public promise: same-origin
+  non-upload, the 12-second maximum, actual Supporter archiving, and the stored
+  aggregate/schema boundary.
+- Phone target measurements found a 39×44 header Demo link, 40 px-high demo
+  actions, and 22 px-high inline email links. The required minimum is 44×44.
+
+No product code was modified during verification. The remaining work is to
+repair those test-coverage and touch-target findings, then rerun verification.
